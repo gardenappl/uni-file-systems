@@ -24,36 +24,20 @@ public final class IOSystem {
 
     /**
      * Reads contents of logical block at address i,
-     * will write at most {@link #blockSize} bytes into supplied array.
+     * will read {@link #blockSize} bytes into supplied array.
      */
     public void readBlock(int i, byte[] buffer) {
-        System.arraycopy(ldisk[i], 0, buffer, 0, Math.min(blockSize, buffer.length));
-    }
-
-    /**
-     * Reads contents of logical block at address i + startReadPos, into buffer + startWritePos,
-     * will write at most {@link #blockSize} bytes into supplied buffer.
-     */
-    public void readBlock(int i, byte[] buffer, int startReadPos, int startWritePos) {
-        System.arraycopy(ldisk[i], startReadPos, buffer, startWritePos,
-                Math.min(blockSize - startReadPos, buffer.length - startWritePos));
+        System.arraycopy(ldisk[i], 0, buffer, 0, blockSize);
     }
     
     /**
      * Write contents of buffer into logical block at address i,
-     * will read at most {@link #blockSize} bytes from buffer.
+     * will write {@link #blockSize} bytes from buffer.
      */
     public void writeBlock(int i, byte[] buffer) {
-        System.arraycopy(buffer, 0, ldisk[i], 0, Math.min(blockSize, buffer.length));
-    }
-
-    /**
-     * Write contents of buffer, starting from startReadPos, into logical block at address i + startWritePos,
-     * will read at most {@link #blockSize} bytes from buffer.
-     */
-    public void writeBlock(int i, byte[] buffer, int startReadPos, int startWritePos) {
-        System.arraycopy(buffer, startReadPos, ldisk[i], startWritePos,
-                Math.min(blockSize - startWritePos, buffer.length - startReadPos));
+        if (buffer.length < blockSize)
+            throw new IllegalArgumentException("Buffer is too small");
+        System.arraycopy(buffer, 0, ldisk[i], 0, blockSize);
     }
 
     /**

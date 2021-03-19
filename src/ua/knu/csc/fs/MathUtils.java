@@ -51,13 +51,11 @@ public final class MathUtils {
         return bitmap | BITMASKS[index];
     }
     
-    public static byte[] toBytes(long l) {
-        byte[] result = new byte[Long.BYTES];
+    public static void toBytes(long l, byte[] buffer) {
         for (int i = Long.BYTES - 1; i >= 0; i--) {
-            result[i] = (byte)(l & 0xFF);
+            buffer[i] = (byte)(l & 0xFF);
             l = l >> 1;
         }
-        return result;
     }
     
     public static long toLong(byte[] bytes) {

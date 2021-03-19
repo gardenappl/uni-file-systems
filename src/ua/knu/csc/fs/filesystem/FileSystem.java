@@ -12,7 +12,12 @@ public final class FileSystem {
     private static final int OFT_SIZE = 25;
     private final OpenFileTable oftTable;
     private final OFTEntry rootDirectory;
-    
+
+    /**
+     * k reserved blocks.
+     * 1st reserved block contains only the bitmap,
+     * the other k-1 blocks each can contain multiple file descriptors
+     */
     private final int reservedBlocks;
 
     /**
@@ -31,8 +36,9 @@ public final class FileSystem {
 
         this.oftTable = new OpenFileTable(OFT_SIZE, ioSystem.blockSize);
 
-        byte[] rootDirSizeBytes = new byte[Integer.BYTES];
-        ioSystem.readBlock(0, rootDirSizeBytes, FD_SIZE, 0);
+        byte[] rootDirSizeBytes = new byte[ioSystem.blockSize];
+        //Root dir is always the first FD and is always in block 1
+        ioSystem.readBlock(1, rootDirSizeBytes);
         int rootDirSize = ByteBuffer.wrap(rootDirSizeBytes).getInt();
         
         try {
@@ -40,7 +46,7 @@ public final class FileSystem {
         } catch (FakeIOException e) {
             throw new RuntimeException(e);
         }
-        this.reservedBlocks = (1 + maxFiles) * FD_SIZE / ioSystem.blockSize;
+        this.reservedBlocks = 1 + maxFiles * FD_SIZE / ioSystem.blockSize;
     }
 
     /**
@@ -54,7 +60,8 @@ public final class FileSystem {
         if (count > buffer.length)
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
 
-        FileDescriptor fd = readFdStructure(file);
+        byte[] fdBlock = new byte[ioSystem.blockSize];
+        FileDescriptor fd = readFdBlock(file, fdBlock);
 
         int bytesRead = 0;
         while (bytesRead < count) {
@@ -100,11 +107,12 @@ public final class FileSystem {
         if (count > buffer.length)
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
 
-        FileDescriptor fd = readFdStructure(file);
+        byte[] fdBlock = new byte[ioSystem.blockSize];
+        FileDescriptor fd = readFdBlock(file, fdBlock);
 
-        byte[] bitmapBytes = new byte[Long.BYTES];
-        ioSystem.readBlock(0, bitmapBytes);
-        long bitmap = MathUtils.toLong(bitmapBytes);
+        byte[] bitmapBlock = new byte[ioSystem.blockSize];
+        ioSystem.readBlock(0, bitmapBlock);
+        long bitmap = MathUtils.toLong(bitmapBlock);
 
         long oldBitmap = bitmap;
 
@@ -153,9 +161,11 @@ public final class FileSystem {
 
         //Flush changed data to disk
         fd.length = file.fileSize;
-        writeFdStructure(file.fd, fd);
-        if (bitmap != oldBitmap)
-            ioSystem.writeBlock(0, MathUtils.toBytes(bitmap));
+        writeFdStructure(file.fd, fd, fdBlock);
+        if (bitmap != oldBitmap) {
+            MathUtils.toBytes(bitmap, bitmapBlock);
+            ioSystem.writeBlock(0, bitmapBlock);
+        }
 
         if (file.dirty) {
             ioSystem.writeBlock(fd.blocks[file.position / ioSystem.blockSize], file.buffer);
@@ -173,7 +183,8 @@ public final class FileSystem {
         file.position = position;
         
         if (oldBlockNum != newBlockNum) {
-            FileDescriptor fd = readFdStructure(file);
+            byte[] fdBlock = new byte[ioSystem.blockSize];
+            FileDescriptor fd = readFdBlock(file, fdBlock);
 
             if (file.dirty) {
                 file.dirty = false;
@@ -183,32 +194,41 @@ public final class FileSystem {
         }
     }
 
-    private FileDescriptor readFdStructure(OFTEntry file) {
-        byte[] fdBytes = new byte[FD_SIZE];
+    /**
+     * Reads the reserved area block which contains the file descriptor
+     * @param file the file whose FD we are looking for
+     * @param fdBlockBuffer this buffer will contain the block with the fd
+     * @return parsed FileDescriptor
+     */
+    private FileDescriptor readFdBlock(OFTEntry file, byte[] fdBlockBuffer) {
         ioSystem.readBlock(
-                (file.fd + 1) * FD_SIZE / ioSystem.blockSize,
-                fdBytes,
-                ((file.fd + 1) * FD_SIZE) % ioSystem.blockSize,
-                0
+                1 + file.fd * FD_SIZE / ioSystem.blockSize,
+                fdBlockBuffer
         );
-        ByteBuffer buffer = ByteBuffer.wrap(fdBytes);
+        ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
+        buffer.position(file.fd * FD_SIZE % ioSystem.blockSize);
         return new FileDescriptor(buffer.getInt(), new int[] {
-                buffer.getInt(Integer.BYTES),
-                buffer.getInt(Integer.BYTES * 2),
-                buffer.getInt(Integer.BYTES * 3)
+                buffer.getInt(),
+                buffer.getInt(),
+                buffer.getInt()
         });
     }
 
-    private void writeFdStructure(int fdIndex, FileDescriptor fd) {
-        ByteBuffer buffer = ByteBuffer.allocate(FD_SIZE);
+    /**
+     * Writes the parsed {@link FileDescriptor}, and the surrounding block buffer
+     * @param fdIndex the file descriptor number
+     * @param fd the parsed file descriptor
+     * @param fdBlockBuffer buffer which contains this FD index as well as other FDs
+     */
+    private void writeFdStructure(int fdIndex, FileDescriptor fd, byte[] fdBlockBuffer) {
+        ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
+        buffer.position(fdIndex * FD_SIZE % ioSystem.blockSize);
         buffer.putInt(fd.length);
         for (int blockPointer : fd.blocks)
             buffer.putInt(blockPointer);
         ioSystem.writeBlock(
-                (fdIndex + 1) * FD_SIZE / ioSystem.blockSize,
-                buffer.array(),
-                0,
-                ((fdIndex + 1) * FD_SIZE) % ioSystem.blockSize
+                1 + fdIndex * FD_SIZE / ioSystem.blockSize,
+                fdBlockBuffer
         );
     }
 
