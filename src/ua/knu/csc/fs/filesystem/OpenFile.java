@@ -1,6 +1,6 @@
 package ua.knu.csc.fs.filesystem;
 
-public final class OFTEntry {
+public final class OpenFile {
     final byte[] buffer;
 
     /**
@@ -22,9 +22,9 @@ public final class OFTEntry {
 
     /**
      * Do not use this directly!
-     * Instead, use {@link OpenFileTable#allocate(int, int, int)} and {@link OpenFileTable#deallocate(OFTEntry)}
+     * Instead, use {@link OpenFileTable#allocate(int, int, int)} and {@link OpenFileTable#deallocate(OpenFile)}
      */
-    OFTEntry(int bufferSize, int fd, int pos, int fileSize) {
+    OpenFile(int bufferSize, int fd, int pos, int fileSize) {
         this.buffer = new byte[bufferSize];
         reset(fd, pos, fileSize);
     }

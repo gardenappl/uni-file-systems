@@ -11,7 +11,7 @@ public final class FileSystem {
 
     private static final int OFT_SIZE = 25;
     private final OpenFileTable oftTable;
-    private final OFTEntry rootDirectory;
+    private final OpenFile rootDirectory;
 
     /**
      * k reserved blocks.
@@ -56,7 +56,7 @@ public final class FileSystem {
      * @param count how many bytes to read
      * @return amount of bytes read, 0 if end of file
      */
-    public int read(OFTEntry file, byte[] buffer, int count) {
+    public int read(OpenFile file, byte[] buffer, int count) {
         if (count > buffer.length)
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
 
@@ -103,7 +103,7 @@ public final class FileSystem {
      * @param count how many bytes to write
      * @return amount of bytes written, 0 if end of file
      */
-    public int write(OFTEntry file, byte[] buffer, int count) throws IOException {
+    public int write(OpenFile file, byte[] buffer, int count) throws IOException {
         if (count > buffer.length)
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
 
@@ -132,7 +132,7 @@ public final class FileSystem {
                 if (fd.blocks[file.position / ioSystem.blockSize] == FileDescriptor.BLOCK_UNUSED) {
                     //Allocate new block
                     long[] bitmapRef = new long[] { bitmap };
-                    int newBlock = allocateBlock(bitmapRef);
+                    int newBlock = allocateDataBlock(bitmapRef);
                     bitmap = bitmapRef[0];
                     
                     fd.blocks[file.position / ioSystem.blockSize] = newBlock;
@@ -161,7 +161,7 @@ public final class FileSystem {
 
         //Flush changed data to disk
         fd.length = file.fileSize;
-        writeFdStructure(file.fd, fd, fdBlock);
+        writeFdBlock(file.fd, fd, fdBlock);
         if (bitmap != oldBitmap) {
             MathUtils.toBytes(bitmap, bitmapBlock);
             ioSystem.writeBlock(0, bitmapBlock);
@@ -176,7 +176,7 @@ public final class FileSystem {
         return bytesWritten;
     }
     
-    public void seek(OFTEntry file, int position) {
+    public void seek(OpenFile file, int position) {
         int oldBlockNum = file.position / ioSystem.blockSize;
         int newBlockNum = position / ioSystem.blockSize;
 
@@ -200,7 +200,7 @@ public final class FileSystem {
      * @param fdBlockBuffer this buffer will contain the block with the fd
      * @return parsed FileDescriptor
      */
-    private FileDescriptor readFdBlock(OFTEntry file, byte[] fdBlockBuffer) {
+    private FileDescriptor readFdBlock(OpenFile file, byte[] fdBlockBuffer) {
         ioSystem.readBlock(
                 1 + file.fd * FD_SIZE / ioSystem.blockSize,
                 fdBlockBuffer
@@ -220,7 +220,7 @@ public final class FileSystem {
      * @param fd the parsed file descriptor
      * @param fdBlockBuffer buffer which contains this FD index as well as other FDs
      */
-    private void writeFdStructure(int fdIndex, FileDescriptor fd, byte[] fdBlockBuffer) {
+    private void writeFdBlock(int fdIndex, FileDescriptor fd, byte[] fdBlockBuffer) {
         ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
         buffer.position(fdIndex * FD_SIZE % ioSystem.blockSize);
         buffer.putInt(fd.length);
@@ -238,16 +238,18 @@ public final class FileSystem {
      * @return pointer to block
      * @throws FakeIOException there is no more room in the I/O system
      */
-    private int allocateBlock(long[] bitmap) {
+    private int allocateDataBlock(long[] bitmap) throws FakeIOException {
         int freeBlock = MathUtils.findZeroByte(bitmap[0]);
+        if (freeBlock < 0)
+            throw new FakeIOException("No room for new data block!");
         bitmap[0] = MathUtils.setOneByte(bitmap[0], freeBlock);
         return reservedBlocks + freeBlock;
     }
 
     /**
-     * Method for testing
+     * Temporary method for testing
      */
-    public OFTEntry getRootDirectory() {
+    public OpenFile getRootDirectory() {
         return rootDirectory;
     }
 }

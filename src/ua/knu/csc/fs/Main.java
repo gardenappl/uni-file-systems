@@ -1,10 +1,9 @@
 package ua.knu.csc.fs;
 
 import ua.knu.csc.fs.filesystem.FileSystem;
-import ua.knu.csc.fs.filesystem.OFTEntry;
+import ua.knu.csc.fs.filesystem.OpenFile;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 public class Main {
@@ -39,19 +38,38 @@ public class Main {
         IOSystem vdd = new IOSystem(64, 64, IOSystem.DEFAULT_SAVE_FILE);
         FileSystem fs = new FileSystem(vdd, 25);
         
-        OFTEntry root = fs.getRootDirectory();
-        byte[] string = "Hello, world! Hahahahahaha, yes this is a very very long string, yes yes!".getBytes(StandardCharsets.UTF_8);
+        OpenFile root = fs.getRootDirectory();
+        stringBytes = "Hello, world! Hahahahahaha, yes this is a very very long string, longer than 64 bytes!"
+                .getBytes(StandardCharsets.UTF_8);
         
         try {
-            fs.write(root, string, string.length);
+            //Write, reset position, and read
+            fs.write(root, stringBytes, stringBytes.length);
+
+            fs.seek(root, 0);
+
+            byte[] bytes = new byte[stringBytes.length];
+            fs.read(root, bytes, bytes.length);
+            System.out.println(new String(bytes, StandardCharsets.UTF_8));
+
+            //Write to file and re-create FS
+
+            vdd.saveToFile();
+            
+            vdd = new IOSystem(64, 64, IOSystem.DEFAULT_SAVE_FILE);
+            vdd.readFromFile();
+
+            fs = new FileSystem(vdd, 25);
+            
         } catch (IOException e) {
             e.printStackTrace();
+            return;
         }
-        byte[] bytes = new byte[string.length];
 
-        fs.seek(root, 0);
+        root = fs.getRootDirectory();
+
+        byte[] bytes = new byte[stringBytes.length];
         fs.read(root, bytes, bytes.length);
-
         System.out.println(new String(bytes, StandardCharsets.UTF_8));
     }
 }
