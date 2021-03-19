@@ -6,7 +6,7 @@ final class FileDescriptor {
      */
     int length;
     /**
-     * Pointer to blocks which contain the file data
+     * Pointers to blocks which contain the file data
      * blocks[i] == {@link #BLOCK_UNUSED} means the block is not used
      */
     final int[] blocks;
