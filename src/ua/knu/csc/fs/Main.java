@@ -55,7 +55,7 @@ public class Main {
             //Write to file and re-create FS
 
             vdd.saveToFile();
-            
+
             vdd = new IOSystem(64, 64, IOSystem.DEFAULT_SAVE_FILE);
             vdd.readFromFile();
 

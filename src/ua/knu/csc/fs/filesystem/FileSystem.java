@@ -32,6 +32,9 @@ public final class FileSystem {
         if (ioSystem.blockCount > Long.SIZE)
             throw new IllegalArgumentException("This file system only supports I/O devices with <=64 sectors");
 
+        if (ioSystem.blockSize % FD_SIZE != 0)
+            throw new IllegalArgumentException("This file system only supports I/O devices where block size is a mulitple of " + FD_SIZE);
+
         this.ioSystem = ioSystem;
 
         this.oftTable = new OpenFileTable(OFT_SIZE, ioSystem.blockSize);
@@ -46,7 +49,7 @@ public final class FileSystem {
         } catch (FakeIOException e) {
             throw new RuntimeException(e);
         }
-        this.reservedBlocks = 1 + maxFiles * FD_SIZE / ioSystem.blockSize;
+        this.reservedBlocks = 1 + MathUtils.divideCeil(maxFiles * FD_SIZE,  ioSystem.blockSize);
     }
 
     /**
