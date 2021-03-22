@@ -20,36 +20,22 @@ public final class FileSystem {
      */
     private final int reservedBlocks;
 
-    /**
-     * Size of a file descriptor entry, in bytes (see {@link FileDescriptor}):
-     * 4 bytes = 1 int, for file size
-     * 12 bytes = 3 ints, for pointers to 3 blocks
-     * TODO: last int could point to another file descriptor, so we can have more than 3 blocks?
-     */
-    private static final int FD_SIZE = 16;
 
     public FileSystem(IOSystem ioSystem, int maxFiles) {
-        if (ioSystem.blockCount > Long.SIZE)
-            throw new IllegalArgumentException("This file system only supports I/O devices with <=64 sectors");
-
-        if (ioSystem.blockSize % FD_SIZE != 0)
-            throw new IllegalArgumentException("This file system only supports I/O devices where block size is a mulitple of " + FD_SIZE);
-
+        if (ioSystem.blockSize % FileDescriptor.BYTES != 0)
+            throw new IllegalArgumentException("This file system only supports I/O devices where block size is a mulitple of " + FileDescriptor.BYTES);
+        
         this.ioSystem = ioSystem;
 
+        //Root dir is always open
         this.oftTable = new OpenFileTable(OFT_SIZE, ioSystem.blockSize);
-
-        byte[] rootDirSizeBytes = new byte[ioSystem.blockSize];
-        //Root dir is always the first FD and is always in block 1
-        ioSystem.readBlock(1, rootDirSizeBytes);
-        int rootDirSize = ByteBuffer.wrap(rootDirSizeBytes).getInt();
         
         try {
-            this.rootDirectory = oftTable.allocate(0, 0, rootDirSize);
+            this.rootDirectory = oftTable.allocate(0, 0);
         } catch (FakeIOException e) {
             throw new RuntimeException(e);
         }
-        this.reservedBlocks = 1 + MathUtils.divideCeil(maxFiles * FD_SIZE,  ioSystem.blockSize);
+        this.reservedBlocks = 1 + MathUtils.divideCeil(maxFiles * FileDescriptor.BYTES,  ioSystem.blockSize);
     }
 
     /**
@@ -68,12 +54,13 @@ public final class FileSystem {
 
         int bytesRead = 0;
         while (bytesRead < count) {
-            if (file.position == file.fileSize)
+            if (file.position == fd.fileSize)
                 break;
 
+            //Need to swap buffers
             if (file.position % ioSystem.blockSize == 0) {
-                //Read next block
                 if (file.dirty) {
+                    //If file was modified, write changes to disk
                     ioSystem.writeBlock(fd.blocks[(file.position - 1) / ioSystem.blockSize], file.buffer);
                     file.dirty = false;
                 }
@@ -82,7 +69,7 @@ public final class FileSystem {
 
             int positionInBuffer = file.position % file.buffer.length;
             int copyCount = Math.min(
-                    Math.min(file.fileSize - file.position, count - bytesRead),
+                    Math.min(fd.fileSize - file.position, count - bytesRead),
                     file.buffer.length - positionInBuffer
             );
             System.arraycopy(
@@ -121,9 +108,10 @@ public final class FileSystem {
 
         int bytesWritten = 0;
         while (bytesWritten < count) {
+            //Need to swap buffers
             if (file.position % ioSystem.blockSize == 0) {
-                //Write block
                 if (file.dirty) {
+                    //If file was modified, write changes to disk
                     ioSystem.writeBlock(fd.blocks[(file.position - 1) / ioSystem.blockSize], file.buffer);
                     file.dirty = false;
                 }
@@ -157,13 +145,12 @@ public final class FileSystem {
             );
             bytesWritten += copyCount;
             file.position += copyCount;
-            if (file.position > file.fileSize)
-                file.fileSize = file.position;
+            if (file.position > fd.fileSize)
+                fd.fileSize = file.position;
             file.dirty = true;
         }
 
         //Flush changed data to disk
-        fd.length = file.fileSize;
         writeFdBlock(file.fd, fd, fdBlock);
         if (bitmap != oldBitmap) {
             MathUtils.toBytes(bitmap, bitmapBlock);
@@ -180,10 +167,11 @@ public final class FileSystem {
     }
     
     public void seek(OpenFile file, int position) {
+        file.position = position;
+
+        //Swap buffers if the new position is in another block
         int oldBlockNum = file.position / ioSystem.blockSize;
         int newBlockNum = position / ioSystem.blockSize;
-
-        file.position = position;
         
         if (oldBlockNum != newBlockNum) {
             byte[] fdBlock = new byte[ioSystem.blockSize];
@@ -205,11 +193,11 @@ public final class FileSystem {
      */
     private FileDescriptor readFdBlock(OpenFile file, byte[] fdBlockBuffer) {
         ioSystem.readBlock(
-                1 + file.fd * FD_SIZE / ioSystem.blockSize,
+                1 + file.fd * FileDescriptor.BYTES / ioSystem.blockSize,
                 fdBlockBuffer
         );
         ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
-        buffer.position(file.fd * FD_SIZE % ioSystem.blockSize);
+        buffer.position(file.fd * FileDescriptor.BYTES % ioSystem.blockSize);
         return new FileDescriptor(buffer.getInt(), new int[] {
                 buffer.getInt(),
                 buffer.getInt(),
@@ -225,12 +213,12 @@ public final class FileSystem {
      */
     private void writeFdBlock(int fdIndex, FileDescriptor fd, byte[] fdBlockBuffer) {
         ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
-        buffer.position(fdIndex * FD_SIZE % ioSystem.blockSize);
-        buffer.putInt(fd.length);
+        buffer.position(fdIndex * FileDescriptor.BYTES % ioSystem.blockSize);
+        buffer.putInt(fd.fileSize);
         for (int blockPointer : fd.blocks)
             buffer.putInt(blockPointer);
         ioSystem.writeBlock(
-                1 + fdIndex * FD_SIZE / ioSystem.blockSize,
+                1 + fdIndex * FileDescriptor.BYTES / ioSystem.blockSize,
                 fdBlockBuffer
         );
     }
@@ -243,7 +231,7 @@ public final class FileSystem {
      */
     private int allocateDataBlock(long[] bitmap) throws FakeIOException {
         int freeBlock = MathUtils.findZeroByte(bitmap[0]);
-        if (freeBlock < 0)
+        if (freeBlock < 0 || reservedBlocks + freeBlock > ioSystem.blockCount)
             throw new FakeIOException("No room for new data block!");
         bitmap[0] = MathUtils.setOneByte(bitmap[0], freeBlock);
         return reservedBlocks + freeBlock;
@@ -251,6 +239,7 @@ public final class FileSystem {
 
     /**
      * Temporary method for testing
+     * TODO: remove
      */
     public OpenFile getRootDirectory() {
         return rootDirectory;

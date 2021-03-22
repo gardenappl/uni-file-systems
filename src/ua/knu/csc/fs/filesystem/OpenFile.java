@@ -13,8 +13,6 @@ public final class OpenFile {
      */
     int fd;
 
-    int fileSize;
-
     /**
      * If set to true, buffer should be written to disk
      */
@@ -22,17 +20,16 @@ public final class OpenFile {
 
     /**
      * Do not use this directly!
-     * Instead, use {@link OpenFileTable#allocate(int, int, int)} and {@link OpenFileTable#deallocate(OpenFile)}
+     * Instead, use {@link OpenFileTable#allocate(int, int)} and {@link OpenFileTable#deallocate(OpenFile)}
      */
-    OpenFile(int bufferSize, int fd, int pos, int fileSize) {
+    OpenFile(int bufferSize, int fd, int pos) {
         this.buffer = new byte[bufferSize];
-        reset(fd, pos, fileSize);
+        reset(fd, pos);
     }
     
-    void reset(int fd, int pos, int fileSize) {
+    void reset(int fd, int pos) {
         this.fd = fd;
         this.position = pos;
-        this.fileSize = fileSize;
         this.dirty = false;
     }
 }

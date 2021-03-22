@@ -71,5 +71,6 @@ public class Main {
         byte[] bytes = new byte[stringBytes.length];
         fs.read(root, bytes, bytes.length);
         System.out.println(new String(bytes, StandardCharsets.UTF_8));
+        System.out.println(fs.read(root, bytes, bytes.length));
     }
 }
