@@ -36,6 +36,16 @@ public final class FileSystem {
             throw new RuntimeException(e);
         }
         this.reservedBlocks = 1 + MathUtils.divideCeil(maxFiles * FileDescriptor.BYTES,  ioSystem.blockSize);
+
+        // Make sure that root file descriptor is valid
+        byte[] buffer = new byte[ioSystem.blockSize];
+        FileDescriptor fileDescriptor = readFdBlock(0, buffer);
+        if (fileDescriptor.isUnused()) {
+            for (int i = 0; i < FileDescriptor.BLOCK_COUNT; i++) {
+                fileDescriptor.blocks[i] = FileDescriptor.BLOCK_UNUSED;
+            }
+            writeFdBlock(0, fileDescriptor, buffer);
+        }
     }
 
     /**
@@ -50,7 +60,7 @@ public final class FileSystem {
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
 
         byte[] fdBlock = new byte[ioSystem.blockSize];
-        FileDescriptor fd = readFdBlock(file, fdBlock);
+        FileDescriptor fd = readFdBlock(file.fd, fdBlock);
 
         int bytesRead = 0;
         while (bytesRead < count) {
@@ -98,7 +108,7 @@ public final class FileSystem {
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
 
         byte[] fdBlock = new byte[ioSystem.blockSize];
-        FileDescriptor fd = readFdBlock(file, fdBlock);
+        FileDescriptor fd = readFdBlock(file.fd, fdBlock);
 
         byte[] bitmapBlock = new byte[ioSystem.blockSize];
         ioSystem.readBlock(0, bitmapBlock);
@@ -175,7 +185,7 @@ public final class FileSystem {
         
         if (oldBlockNum != newBlockNum) {
             byte[] fdBlock = new byte[ioSystem.blockSize];
-            FileDescriptor fd = readFdBlock(file, fdBlock);
+            FileDescriptor fd = readFdBlock(file.fd, fdBlock);
 
             if (file.dirty) {
                 file.dirty = false;
@@ -187,17 +197,17 @@ public final class FileSystem {
 
     /**
      * Reads the reserved area block which contains the file descriptor
-     * @param file the file whose FD we are looking for
+     * @param fdIndex index of file descriptor
      * @param fdBlockBuffer this buffer will contain the block with the fd
      * @return parsed FileDescriptor
      */
-    private FileDescriptor readFdBlock(OpenFile file, byte[] fdBlockBuffer) {
+    private FileDescriptor readFdBlock(int fdIndex, byte[] fdBlockBuffer) {
         ioSystem.readBlock(
-                1 + file.fd * FileDescriptor.BYTES / ioSystem.blockSize,
+                1 + fdIndex * FileDescriptor.BYTES / ioSystem.blockSize,
                 fdBlockBuffer
         );
         ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
-        buffer.position(file.fd * FileDescriptor.BYTES % ioSystem.blockSize);
+        buffer.position(fdIndex * FileDescriptor.BYTES % ioSystem.blockSize);
         return new FileDescriptor(buffer.getInt(), new int[] {
                 buffer.getInt(),
                 buffer.getInt(),
