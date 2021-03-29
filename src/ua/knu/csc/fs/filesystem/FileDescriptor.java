@@ -18,10 +18,15 @@ final class FileDescriptor {
      * blocks[i] == {@link #BLOCK_UNUSED} means the block is not used
      */
     final int[] blocks;
-    static final int BLOCK_UNUSED = 0;
+    static final int BLOCK_UNUSED = -1;
+    static final int BLOCK_COUNT = 3;
 
     public FileDescriptor(int fileSize, int[] blocks) {
         this.fileSize = fileSize;
         this.blocks = blocks;
+    }
+
+    public boolean isUnused() {
+        return (fileSize == 0 && blocks[0] == 0);
     }
 }
