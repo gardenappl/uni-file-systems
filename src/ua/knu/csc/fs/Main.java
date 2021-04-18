@@ -1,5 +1,6 @@
 package ua.knu.csc.fs;
 
+import ua.knu.csc.fs.filesystem.FakeIOException;
 import ua.knu.csc.fs.filesystem.FileSystem;
 import ua.knu.csc.fs.filesystem.OpenFile;
 
@@ -8,7 +9,7 @@ import java.nio.charset.StandardCharsets;
 
 public class Main {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws FakeIOException {
         IOSystem ioTest = new IOSystem(64, 64, "io_test.bin");
 
         byte[] buffer = new byte[ioTest.blockSize];
@@ -37,7 +38,7 @@ public class Main {
         //according to presentation.pdf
         IOSystem vdd = new IOSystem(64, 64, IOSystem.DEFAULT_SAVE_FILE);
         FileSystem fs = new FileSystem(vdd, 25);
-        
+
         OpenFile root = fs.getRootDirectory();
         stringBytes = "Hello, world! Hahahahahaha, yes this is a very very long string, longer than 64 bytes!"
                 .getBytes(StandardCharsets.UTF_8);

@@ -50,6 +50,10 @@ public final class MathUtils {
     public static long setOneByte(long bitmap, int index) {
         return bitmap | BITMASKS[index];
     }
+
+    public static long setZeroByte(long bitmap, int index) {
+        return bitmap & ~BITMASKS[index];
+    }
     
     public static void toBytes(long l, byte[] buffer) {
         for (int i = Long.BYTES - 1; i >= 0; i--) {
