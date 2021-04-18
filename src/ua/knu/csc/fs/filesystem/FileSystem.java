@@ -5,6 +5,7 @@ import ua.knu.csc.fs.MathUtils;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 public final class FileSystem {
     private final IOSystem ioSystem;
@@ -12,6 +13,8 @@ public final class FileSystem {
     private static final int OFT_SIZE = 25;
     private final OpenFileTable oftTable;
     private final OpenFile rootDirectory;
+    private final Directory directory;
+    private final FileDescriptor initFileDescriptor;
 
     /**
      * k reserved blocks.
@@ -19,13 +22,21 @@ public final class FileSystem {
      * the other k-1 blocks each can contain multiple file descriptors
      */
     private final int reservedBlocks;
+    private final int numOfFdInBlock;
 
 
-    public FileSystem(IOSystem ioSystem, int maxFiles) {
+    public FileSystem(IOSystem ioSystem, int maxFiles) throws FakeIOException {
         if (ioSystem.blockSize % FileDescriptor.BYTES != 0)
-            throw new IllegalArgumentException("This file system only supports I/O devices where block size is a mulitple of " + FileDescriptor.BYTES);
+            throw new IllegalArgumentException("This file system only supports I/O devices where block size is a multiple of " + FileDescriptor.BYTES);
         
         this.ioSystem = ioSystem;
+
+        // Create init fd
+        this.initFileDescriptor = new FileDescriptor(0, new int[] {
+                FileDescriptor.BLOCK_UNUSED,
+                FileDescriptor.BLOCK_UNUSED,
+                FileDescriptor.BLOCK_UNUSED
+        });
 
         //Root dir is always open
         this.oftTable = new OpenFileTable(OFT_SIZE, ioSystem.blockSize);
@@ -36,15 +47,19 @@ public final class FileSystem {
             throw new RuntimeException(e);
         }
         this.reservedBlocks = 1 + MathUtils.divideCeil(maxFiles * FileDescriptor.BYTES,  ioSystem.blockSize);
+        this.numOfFdInBlock = ioSystem.blockSize / FileDescriptor.BYTES;
 
         // Make sure that root file descriptor is valid
         byte[] buffer = new byte[ioSystem.blockSize];
         FileDescriptor fileDescriptor = readFdBlock(0, buffer);
         if (fileDescriptor.isUnused()) {
-            for (int i = 0; i < FileDescriptor.BLOCK_COUNT; i++) {
-                fileDescriptor.blocks[i] = FileDescriptor.BLOCK_UNUSED;
-            }
-            writeFdBlock(0, fileDescriptor, buffer);
+            writeFdBlock(0, initFileDescriptor, buffer);
+            this.directory = new Directory();
+        } else {
+            // Read directory data from file system
+            byte[] dirBuffer = new byte[fileDescriptor.fileSize];
+            read(this.rootDirectory, dirBuffer, fileDescriptor.fileSize);
+            this.directory = new Directory(dirBuffer);
         }
     }
 
@@ -196,23 +211,47 @@ public final class FileSystem {
     }
 
     /**
-     * Reads the reserved area block which contains the file descriptor
      * @param fdIndex index of file descriptor
-     * @param fdBlockBuffer this buffer will contain the block with the fd
-     * @return parsed FileDescriptor
+     * @return index of block with file descriptor
      */
-    private FileDescriptor readFdBlock(int fdIndex, byte[] fdBlockBuffer) {
-        ioSystem.readBlock(
-                1 + fdIndex * FileDescriptor.BYTES / ioSystem.blockSize,
-                fdBlockBuffer
-        );
+    private int getBlockWithFd(int fdIndex) {
+        return 1 + fdIndex * FileDescriptor.BYTES / ioSystem.blockSize;
+    }
+
+    /**
+     * @param fdIndex index of file descriptor
+     * @return position of the fd in block
+     */
+    private int getPositionInBlock(int fdIndex) {
+        return fdIndex * FileDescriptor.BYTES % ioSystem.blockSize;
+    }
+
+    /**
+     * @param fdIndex index of file descriptor or index in block [0; {@link #numOfFdInBlock} - 1]
+     * @param fdBlockBuffer this buffer contains the block with the fd
+     * @return parsed {@link FileDescriptor}
+     */
+    private FileDescriptor parseFdInBlock(int fdIndex, byte[] fdBlockBuffer) {
         ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
-        buffer.position(fdIndex * FileDescriptor.BYTES % ioSystem.blockSize);
+        buffer.position(getPositionInBlock(fdIndex));
         return new FileDescriptor(buffer.getInt(), new int[] {
                 buffer.getInt(),
                 buffer.getInt(),
                 buffer.getInt()
         });
+    }
+
+    /**
+     * Reads the reserved area block which contains the file descriptor
+     * @param fdIndex index of file descriptor
+     * @param fdBlockBuffer this buffer will contain the block with the fd
+     * @return parsed {@link FileDescriptor}
+     */
+    private FileDescriptor readFdBlock(int fdIndex, byte[] fdBlockBuffer) {
+        int blockIndex = getBlockWithFd(fdIndex);
+        ioSystem.readBlock(blockIndex, fdBlockBuffer);
+
+        return parseFdInBlock(fdIndex, fdBlockBuffer);
     }
 
     /**
@@ -223,14 +262,12 @@ public final class FileSystem {
      */
     private void writeFdBlock(int fdIndex, FileDescriptor fd, byte[] fdBlockBuffer) {
         ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
-        buffer.position(fdIndex * FileDescriptor.BYTES % ioSystem.blockSize);
+        buffer.position(getPositionInBlock(fdIndex));
+
         buffer.putInt(fd.fileSize);
         for (int blockPointer : fd.blocks)
             buffer.putInt(blockPointer);
-        ioSystem.writeBlock(
-                1 + fdIndex * FileDescriptor.BYTES / ioSystem.blockSize,
-                fdBlockBuffer
-        );
+        ioSystem.writeBlock(getBlockWithFd(fdIndex), fdBlockBuffer);
     }
 
     /**
@@ -254,4 +291,117 @@ public final class FileSystem {
     public OpenFile getRootDirectory() {
         return rootDirectory;
     }
+
+    /**
+     * Find a free file descriptor in [2; k] blocks
+     * @return index of the free file descriptor
+     * @throws FakeIOException there is no more free file descriptor
+     */
+    private int findFreeFd() throws FakeIOException {
+        for (int i = 1; i < reservedBlocks; i++) {
+            byte[] buffer = new byte[ioSystem.blockSize];
+            ioSystem.readBlock(i, buffer);
+
+            for (int j = 0; j < numOfFdInBlock; j++) {
+                FileDescriptor fileDescriptor = parseFdInBlock(j, buffer);
+                if (fileDescriptor.isUnused()) {
+                    return ((i - 1) * numOfFdInBlock) + j;
+                }
+            }
+        }
+        throw new FakeIOException("Can't find free file descriptor");
+    }
+
+    /**
+     * Save the directory to the file system
+     * @throws IOException the write function causes an error
+     */
+    private void saveDirectory() throws IOException {
+        byte[] bufferDirectory = directory.toByteArray();
+        seek(this.rootDirectory, 0);
+        write(this.rootDirectory, bufferDirectory, bufferDirectory.length);
+    }
+
+    /**
+     * Create new file in the file system
+     * @param fileName name of created file (max name length 4)
+     */
+    public void create(String fileName) throws IOException {
+        // Checking length of file name
+        if (fileName.length() > 4) {
+            throw new FakeIOException("Max length of file name is 4");
+        }
+
+        // Find a free file descriptor
+        int freeFd = findFreeFd();
+
+        // Find a free entry in the directory
+        byte[] fileNameBytes = fileName.getBytes(StandardCharsets.UTF_8);
+        directory.createEntry(fileNameBytes, freeFd);
+
+        // Initialize fd
+        byte[] buffer = new byte[ioSystem.blockSize];
+        ioSystem.readBlock(getBlockWithFd(freeFd), buffer);
+        writeFdBlock(freeFd, initFileDescriptor, buffer);
+
+        // Save changes in the directory
+        saveDirectory();
+    }
+
+    public void destroy(String fileName) throws IOException {
+        // Checking length of file name
+        if (fileName.length() > 4) {
+            throw new FakeIOException("File doesn't exist");
+        }
+
+        // Find the file descriptor by searching the directory
+        // Remove the directory entry
+        byte[] fileNameBytes = fileName.getBytes(StandardCharsets.UTF_8);
+        int removeFdIndex = directory.removeEntry(fileNameBytes);
+
+        // Update the bitmap to reflect the freed blocks
+        byte[] bitmapBlock = new byte[ioSystem.blockSize];
+        ioSystem.readBlock(0, bitmapBlock);
+        long bitmap = MathUtils.toLong(bitmapBlock);
+
+        byte[] buffer = new byte[ioSystem.blockSize];
+        FileDescriptor fileDescriptor = readFdBlock(removeFdIndex, buffer);
+        for (int i = 0; i < FileDescriptor.BLOCK_COUNT; i++) {
+            int freeBlockIndex = fileDescriptor.blocks[i];
+            if (freeBlockIndex != FileDescriptor.BLOCK_UNUSED) {
+                bitmap = MathUtils.setZeroByte(bitmap, freeBlockIndex);
+            }
+        }
+
+        MathUtils.toBytes(bitmap, bitmapBlock);
+        ioSystem.writeBlock(0, bitmapBlock);
+
+        // Free the file descriptor
+        writeFdBlock(
+                removeFdIndex,
+                new FileDescriptor(0, new int[FileDescriptor.BLOCK_COUNT]),
+                buffer
+        );
+
+        // Save changes in the directory
+        saveDirectory();
+    }
+
+//    public static void main(String[] args) {
+//        try {
+//            // 4 cylinders, 2 surfaces, 8 sectors/track, 64 bytes/sector
+//            // according to presentation.pdf
+//            IOSystem vdd = new IOSystem(64, 64, IOSystem.DEFAULT_SAVE_FILE);
+//            FileSystem fs = new FileSystem(vdd, 25);
+//
+//            fs.create("foo");
+//            fs.create("foo2");
+//            fs.destroy("foo");
+//
+//            System.out.println("Everything is working");
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//            System.out.println("Message: " + e.getMessage());
+//        }
+//    }
 }
