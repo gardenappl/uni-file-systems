@@ -1,7 +1,10 @@
 package ua.knu.csc.fs.filesystem;
 
 public final class OpenFile {
-    final byte[] buffer;
+    /**
+     * Current buffer for read/write operations, corresponds to one data block.
+     */
+    byte[] buffer;
 
     /**
      * Current read/write position relative to start of file
@@ -28,16 +31,20 @@ public final class OpenFile {
      */
     boolean dirtyFd;
 
+    private final int bufferSize;
+
     /**
      * Do not use this directly!
      * Instead, use {@link OpenFileTable#allocate(int, FileDescriptor, int)} and {@link OpenFileTable#deallocate(OpenFile)}
      */
     OpenFile(int bufferSize, int fdIndex, int pos) {
-        this.buffer = new byte[bufferSize];
+        this.bufferSize = bufferSize;
         reset(fdIndex, null, pos);
     }
     
     void reset(int fdIndex, FileDescriptor fd, int pos) {
+        if (buffer == null)
+            buffer = new byte[bufferSize];
         this.fdIndex = fdIndex;
         this.fd = fd;
         this.position = pos;

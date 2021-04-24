@@ -38,6 +38,7 @@ final class OpenFileTable {
 
     public void deallocate(OpenFile entry) {
         entry.fdIndex = FD_UNUSED;
+        entry.buffer = null;
     }
 
     /**
