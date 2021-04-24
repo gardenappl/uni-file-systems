@@ -38,7 +38,7 @@ public class Main {
         //according to presentation.pdf
         //4 * 2 * 8 = 64 bytes/sector
         IOSystem vdd = new IOSystem(64, 64, IOSystem.DEFAULT_SAVE_FILE);
-        FileSystem fs = new FileSystem(vdd, 25);
+        FileSystem fs = new FileSystem(vdd);
 
 //        OpenFile root = fs.getRootDirectory();
 //        stringBytes = "Hello, world! Hahahahahaha, yes this is a very very long string, longer than 64 bytes!"

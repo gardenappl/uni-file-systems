@@ -27,16 +27,32 @@ public final class FileSystem {
 
     public static final int END_OF_FILE = -1;
 
-    public FileSystem(IOSystem ioSystem, int maxFiles) throws FakeIOException {
+    public FileSystem(IOSystem ioSystem) throws FakeIOException {
         if (ioSystem.blockSize % FileDescriptor.BYTES != 0)
             throw new IllegalArgumentException("This file system only supports I/O devices where block size is a multiple of " + FileDescriptor.BYTES);
         
         this.ioSystem = ioSystem;
-
         this.oftTable = new OpenFileTable(OFT_SIZE, ioSystem.blockSize);
 
-        this.reservedBlocks = 1 + MathUtils.divideCeil(maxFiles * FileDescriptor.BYTES,  ioSystem.blockSize);
         this.numOfFdInBlock = ioSystem.blockSize / FileDescriptor.BYTES;
+
+        // Calculate reserved blocks area size
+        // Assume that every file, on average, takes up 2 data blocks.
+        // In this case, we want the reserved area and the data area to fill up at the same time.
+
+        // If x is the amount of FileDescriptor blocks:
+        // (max. amount of data blocks described by FDs == actual amount of data blocks)
+        // x * numOfFdInBlock * 2 == ioSystem.blockCount - x - 1
+
+        final int AVG_FILE_BLOCKS = 2;
+        // (Add +1 for bitmap block)
+        this.reservedBlocks = 1 + (ioSystem.blockCount - 1) / (numOfFdInBlock * AVG_FILE_BLOCKS + 1);
+
+        System.err.printf(
+                "Created FS with 1 bitmap block, %d FD blocks, %d data blocks\n",
+                reservedBlocks - 1,
+                ioSystem.blockCount - reservedBlocks
+        );
 
         // Create init fd
         this.initFileDescriptor = new FileDescriptor(0, new int[] {
