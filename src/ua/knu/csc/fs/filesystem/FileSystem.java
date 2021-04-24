@@ -3,7 +3,6 @@ package ua.knu.csc.fs.filesystem;
 import ua.knu.csc.fs.IOSystem;
 import ua.knu.csc.fs.MathUtils;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
@@ -12,7 +11,7 @@ public final class FileSystem {
 
     private static final int OFT_SIZE = 25;
     private final OpenFileTable oftTable;
-    private final OpenFile rootDirectory;
+    private final OpenFile root;
     private final Directory directory;
     private final FileDescriptor initFileDescriptor;
 
@@ -24,12 +23,19 @@ public final class FileSystem {
     private final int reservedBlocks;
     private final int numOfFdInBlock;
 
+    private long bitmap;
+
 
     public FileSystem(IOSystem ioSystem, int maxFiles) throws FakeIOException {
         if (ioSystem.blockSize % FileDescriptor.BYTES != 0)
             throw new IllegalArgumentException("This file system only supports I/O devices where block size is a multiple of " + FileDescriptor.BYTES);
         
         this.ioSystem = ioSystem;
+
+        this.oftTable = new OpenFileTable(OFT_SIZE, ioSystem.blockSize);
+
+        this.reservedBlocks = 1 + MathUtils.divideCeil(maxFiles * FileDescriptor.BYTES,  ioSystem.blockSize);
+        this.numOfFdInBlock = ioSystem.blockSize / FileDescriptor.BYTES;
 
         // Create init fd
         this.initFileDescriptor = new FileDescriptor(0, new int[] {
@@ -38,27 +44,28 @@ public final class FileSystem {
                 FileDescriptor.BLOCK_UNUSED
         });
 
-        //Root dir is always open
-        this.oftTable = new OpenFileTable(OFT_SIZE, ioSystem.blockSize);
-        
-        try {
-            this.rootDirectory = oftTable.allocate(0, 0);
-        } catch (FakeIOException e) {
-            throw new RuntimeException(e);
-        }
-        this.reservedBlocks = 1 + MathUtils.divideCeil(maxFiles * FileDescriptor.BYTES,  ioSystem.blockSize);
-        this.numOfFdInBlock = ioSystem.blockSize / FileDescriptor.BYTES;
-
         // Make sure that root file descriptor is valid
         byte[] buffer = new byte[ioSystem.blockSize];
-        FileDescriptor fileDescriptor = readFdBlock(0, buffer);
+        ioSystem.readBlock(getBlockWithFd(0), buffer);
+        FileDescriptor fileDescriptor = parseFdInBlock(0, buffer);
+
         if (fileDescriptor.isUnused()) {
-            writeFdBlock(0, initFileDescriptor, buffer);
+            writeFdToBlock(0, initFileDescriptor, buffer);
+            ioSystem.writeBlock(getBlockWithFd(0), buffer);
+
+            this.root = oftTable.allocate(0, new FileDescriptor(0, new int[] {
+                    FileDescriptor.BLOCK_UNUSED,
+                    FileDescriptor.BLOCK_UNUSED,
+                    FileDescriptor.BLOCK_UNUSED
+            }), 0);
+
             this.directory = new Directory();
         } else {
+            this.root = oftTable.allocate(0, fileDescriptor, 0);
+
             // Read directory data from file system
             byte[] dirBuffer = new byte[fileDescriptor.fileSize];
-            read(this.rootDirectory, dirBuffer, fileDescriptor.fileSize);
+            read(this.root, dirBuffer, fileDescriptor.fileSize);
             this.directory = new Directory(dirBuffer);
         }
     }
@@ -68,33 +75,30 @@ public final class FileSystem {
      * @param file file obtained via open()
      * @param buffer data buffer to read into
      * @param count how many bytes to read
-     * @return amount of bytes read, 0 if end of file
+     * @return amount of bytes read, 0 if reached end of file
      */
     public int read(OpenFile file, byte[] buffer, int count) {
         if (count > buffer.length)
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
 
-        byte[] fdBlock = new byte[ioSystem.blockSize];
-        FileDescriptor fd = readFdBlock(file.fd, fdBlock);
-
         int bytesRead = 0;
         while (bytesRead < count) {
-            if (file.position == fd.fileSize)
+            if (file.position == file.fd.fileSize)
                 break;
 
             //Need to swap buffers
             if (file.position % ioSystem.blockSize == 0) {
-                if (file.dirty) {
+                if (file.dirtyBuffer) {
                     //If file was modified, write changes to disk
-                    ioSystem.writeBlock(fd.blocks[(file.position - 1) / ioSystem.blockSize], file.buffer);
-                    file.dirty = false;
+                    ioSystem.writeBlock(file.fd.blocks[(file.position - 1) / ioSystem.blockSize], file.buffer);
+                    file.dirtyBuffer = false;
                 }
-                ioSystem.readBlock(fd.blocks[file.position / ioSystem.blockSize], file.buffer);
+                ioSystem.readBlock(file.fd.blocks[file.position / ioSystem.blockSize], file.buffer);
             }
 
             int positionInBuffer = file.position % file.buffer.length;
             int copyCount = Math.min(
-                    Math.min(fd.fileSize - file.position, count - bytesRead),
+                    Math.min(file.fd.fileSize - file.position, count - bytesRead),
                     file.buffer.length - positionInBuffer
             );
             System.arraycopy(
@@ -116,18 +120,11 @@ public final class FileSystem {
      * @param file file obtained via open()
      * @param buffer data buffer to write from
      * @param count how many bytes to write
-     * @return amount of bytes written, 0 if end of file
+     * @return amount of bytes written
      */
-    public int write(OpenFile file, byte[] buffer, int count) throws IOException {
+    public int write(OpenFile file, byte[] buffer, int count) throws FakeIOException {
         if (count > buffer.length)
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
-
-        byte[] fdBlock = new byte[ioSystem.blockSize];
-        FileDescriptor fd = readFdBlock(file.fd, fdBlock);
-
-        byte[] bitmapBlock = new byte[ioSystem.blockSize];
-        ioSystem.readBlock(0, bitmapBlock);
-        long bitmap = MathUtils.toLong(bitmapBlock);
 
         long oldBitmap = bitmap;
 
@@ -135,25 +132,26 @@ public final class FileSystem {
         while (bytesWritten < count) {
             //Need to swap buffers
             if (file.position % ioSystem.blockSize == 0) {
-                if (file.dirty) {
+                if (file.dirtyBuffer) {
                     //If file was modified, write changes to disk
-                    ioSystem.writeBlock(fd.blocks[(file.position - 1) / ioSystem.blockSize], file.buffer);
-                    file.dirty = false;
+                    ioSystem.writeBlock(file.fd.blocks[(file.position - 1) / ioSystem.blockSize], file.buffer);
+                    file.dirtyBuffer = false;
                 }
 
                 if (file.position / ioSystem.blockSize >= 3)
                     throw new FakeIOException("File can only be 3 blocks long");
 
                 //Get pointer to next block
-                if (fd.blocks[file.position / ioSystem.blockSize] == FileDescriptor.BLOCK_UNUSED) {
+                if (file.fd.blocks[file.position / ioSystem.blockSize] == FileDescriptor.BLOCK_UNUSED) {
                     //Allocate new block
                     long[] bitmapRef = new long[] { bitmap };
                     int newBlock = allocateDataBlock(bitmapRef);
                     bitmap = bitmapRef[0];
                     
-                    fd.blocks[file.position / ioSystem.blockSize] = newBlock;
+                    file.fd.blocks[file.position / ioSystem.blockSize] = newBlock;
+                    file.dirtyFd = true;
                 }
-                ioSystem.readBlock(fd.blocks[file.position / ioSystem.blockSize], file.buffer);
+                ioSystem.readBlock(file.fd.blocks[file.position / ioSystem.blockSize], file.buffer);
             }
 
             int positionInBuffer = file.position % file.buffer.length;
@@ -170,44 +168,34 @@ public final class FileSystem {
             );
             bytesWritten += copyCount;
             file.position += copyCount;
-            if (file.position > fd.fileSize)
-                fd.fileSize = file.position;
-            file.dirty = true;
+            if (file.position > file.fd.fileSize) {
+                file.fd.fileSize = file.position;
+                file.dirtyFd = true;
+            }
+            file.dirtyBuffer = true;
         }
-
-        //Flush changed data to disk
-        writeFdBlock(file.fd, fd, fdBlock);
-        if (bitmap != oldBitmap) {
+        //Update bitmap now
+        if (oldBitmap != bitmap) {
+            byte[] bitmapBlock = new byte[ioSystem.blockSize];
             MathUtils.toBytes(bitmap, bitmapBlock);
             ioSystem.writeBlock(0, bitmapBlock);
         }
-
-        if (file.dirty) {
-            ioSystem.writeBlock(fd.blocks[file.position / ioSystem.blockSize], file.buffer);
-            file.dirty = false;
-        }
-
-
         return bytesWritten;
     }
     
     public void seek(OpenFile file, int position) {
-        file.position = position;
-
         //Swap buffers if the new position is in another block
         int oldBlockNum = file.position / ioSystem.blockSize;
         int newBlockNum = position / ioSystem.blockSize;
         
         if (oldBlockNum != newBlockNum) {
-            byte[] fdBlock = new byte[ioSystem.blockSize];
-            FileDescriptor fd = readFdBlock(file.fd, fdBlock);
-
-            if (file.dirty) {
-                file.dirty = false;
-                ioSystem.writeBlock(fd.blocks[oldBlockNum], file.buffer);
+            if (file.dirtyBuffer) {
+                file.dirtyBuffer = false;
+                ioSystem.writeBlock(file.fd.blocks[oldBlockNum], file.buffer);
             }
-            ioSystem.readBlock(fd.blocks[newBlockNum], file.buffer);
+            ioSystem.readBlock(file.fd.blocks[newBlockNum], file.buffer);
         }
+        file.position = position;
     }
 
     /**
@@ -242,32 +230,18 @@ public final class FileSystem {
     }
 
     /**
-     * Reads the reserved area block which contains the file descriptor
-     * @param fdIndex index of file descriptor
-     * @param fdBlockBuffer this buffer will contain the block with the fd
-     * @return parsed {@link FileDescriptor}
-     */
-    private FileDescriptor readFdBlock(int fdIndex, byte[] fdBlockBuffer) {
-        int blockIndex = getBlockWithFd(fdIndex);
-        ioSystem.readBlock(blockIndex, fdBlockBuffer);
-
-        return parseFdInBlock(fdIndex, fdBlockBuffer);
-    }
-
-    /**
-     * Writes the parsed {@link FileDescriptor}, and the surrounding block buffer
+     * Writes the data stored in a {@link FileDescriptor} into the proper I/O block
      * @param fdIndex the file descriptor number
      * @param fd the parsed file descriptor
-     * @param fdBlockBuffer buffer which contains this FD index as well as other FDs
+     * @param fdBlockBuffer IO block retrieved by {@link #getBlockWithFd(int)}
      */
-    private void writeFdBlock(int fdIndex, FileDescriptor fd, byte[] fdBlockBuffer) {
+    private void writeFdToBlock(int fdIndex, FileDescriptor fd, byte[] fdBlockBuffer) {
         ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
         buffer.position(getPositionInBlock(fdIndex));
 
         buffer.putInt(fd.fileSize);
         for (int blockPointer : fd.blocks)
             buffer.putInt(blockPointer);
-        ioSystem.writeBlock(getBlockWithFd(fdIndex), fdBlockBuffer);
     }
 
     /**
@@ -289,7 +263,37 @@ public final class FileSystem {
      * TODO: remove
      */
     public OpenFile getRootDirectory() {
-        return rootDirectory;
+        return root;
+    }
+
+    /**
+     * Flush cached data into I/O system.
+     * This should be called before saving the emulated I/O system into a real disk.
+     */
+    public void sync() {
+        for (int i = 0; i < oftTable.size; i++) {
+            OpenFile file = oftTable.getOpenFile(i);
+            if (file == null)
+                continue;
+            sync(file);
+        }
+    }
+
+    /**
+     * Flush cached data into I/O system. This should be called on every CLOSE operation.
+     * @param file open file entry which contains cached FD and data buffer.
+     */
+    private void sync(OpenFile file) {
+        if (file.dirtyBuffer) {
+            ioSystem.writeBlock(file.fd.blocks[file.position / ioSystem.blockSize], file.buffer);
+            file.dirtyBuffer = false;
+        }
+        if (file.dirtyFd) {
+            byte[] fdBlock = new byte[ioSystem.blockSize];
+            writeFdToBlock(file.fdIndex, file.fd, fdBlock);
+            ioSystem.writeBlock(getBlockWithFd(file.fdIndex), fdBlock);
+            file.dirtyFd = false;
+        }
     }
 
     /**
@@ -314,19 +318,19 @@ public final class FileSystem {
 
     /**
      * Save the directory to the file system
-     * @throws IOException the write function causes an error
+     * @throws FakeIOException the write function causes an error
      */
-    private void saveDirectory() throws IOException {
+    private void saveDirectory() throws FakeIOException {
         byte[] bufferDirectory = directory.toByteArray();
-        seek(this.rootDirectory, 0);
-        write(this.rootDirectory, bufferDirectory, bufferDirectory.length);
+        seek(this.root, 0);
+        write(this.root, bufferDirectory, bufferDirectory.length);
     }
 
     /**
      * Create new file in the file system
      * @param fileName name of created file (max name length 4)
      */
-    public void create(String fileName) throws IOException {
+    public void create(String fileName) throws FakeIOException {
         // Checking length of file name
         if (fileName.length() > 4) {
             throw new FakeIOException("Max length of file name is 4");
@@ -342,13 +346,14 @@ public final class FileSystem {
         // Initialize fd
         byte[] buffer = new byte[ioSystem.blockSize];
         ioSystem.readBlock(getBlockWithFd(freeFd), buffer);
-        writeFdBlock(freeFd, initFileDescriptor, buffer);
+        writeFdToBlock(freeFd, initFileDescriptor, buffer);
+        ioSystem.writeBlock(getBlockWithFd(freeFd), buffer);
 
         // Save changes in the directory
         saveDirectory();
     }
 
-    public void destroy(String fileName) throws IOException {
+    public void destroy(String fileName) throws FakeIOException {
         // Checking length of file name
         if (fileName.length() > 4) {
             throw new FakeIOException("File doesn't exist");
@@ -359,13 +364,13 @@ public final class FileSystem {
         byte[] fileNameBytes = fileName.getBytes(StandardCharsets.UTF_8);
         int removeFdIndex = directory.removeEntry(fileNameBytes);
 
-        // Update the bitmap to reflect the freed blocks
-        byte[] bitmapBlock = new byte[ioSystem.blockSize];
-        ioSystem.readBlock(0, bitmapBlock);
-        long bitmap = MathUtils.toLong(bitmapBlock);
+        // Scan the file descriptor to find the data blocks which must be freed,
+        // and update the bitmap
 
         byte[] buffer = new byte[ioSystem.blockSize];
-        FileDescriptor fileDescriptor = readFdBlock(removeFdIndex, buffer);
+        ioSystem.readBlock(getBlockWithFd(removeFdIndex), buffer);
+        FileDescriptor fileDescriptor = parseFdInBlock(getBlockWithFd(removeFdIndex), buffer);
+
         for (int i = 0; i < FileDescriptor.BLOCK_COUNT; i++) {
             int freeBlockIndex = fileDescriptor.blocks[i];
             if (freeBlockIndex != FileDescriptor.BLOCK_UNUSED) {
@@ -373,35 +378,19 @@ public final class FileSystem {
             }
         }
 
-        MathUtils.toBytes(bitmap, bitmapBlock);
-        ioSystem.writeBlock(0, bitmapBlock);
-
         // Free the file descriptor
-        writeFdBlock(
+        writeFdToBlock(
                 removeFdIndex,
                 new FileDescriptor(0, new int[FileDescriptor.BLOCK_COUNT]),
                 buffer
         );
+        ioSystem.writeBlock(getBlockWithFd(removeFdIndex), buffer);
+
+        //Save updated bitmap
+        MathUtils.toBytes(bitmap, buffer);
+        ioSystem.writeBlock(0, buffer);
 
         // Save changes in the directory
         saveDirectory();
     }
-
-//    public static void main(String[] args) {
-//        try {
-//            // 4 cylinders, 2 surfaces, 8 sectors/track, 64 bytes/sector
-//            // according to presentation.pdf
-//            IOSystem vdd = new IOSystem(64, 64, IOSystem.DEFAULT_SAVE_FILE);
-//            FileSystem fs = new FileSystem(vdd, 25);
-//
-//            fs.create("foo");
-//            fs.create("foo2");
-//            fs.destroy("foo");
-//
-//            System.out.println("Everything is working");
-//        } catch (IOException e) {
-//            e.printStackTrace();
-//            System.out.println("Message: " + e.getMessage());
-//        }
-//    }
 }

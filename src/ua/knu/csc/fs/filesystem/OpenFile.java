@@ -11,25 +11,36 @@ public final class OpenFile {
     /**
      * Index of file descriptor
      */
-    int fd;
+    int fdIndex;
 
     /**
-     * If set to true, buffer should be written to disk
+     * Cached file descriptor
      */
-    boolean dirty;
+    FileDescriptor fd;
+
+    /**
+     * If set to true, buffer should be written to disk at some point
+     */
+    boolean dirtyBuffer;
+
+    /**
+     * If set to true, the cached file descriptor should be written to disk at some point
+     */
+    boolean dirtyFd;
 
     /**
      * Do not use this directly!
-     * Instead, use {@link OpenFileTable#allocate(int, int)} and {@link OpenFileTable#deallocate(OpenFile)}
+     * Instead, use {@link OpenFileTable#allocate(int, FileDescriptor, int)} and {@link OpenFileTable#deallocate(OpenFile)}
      */
-    OpenFile(int bufferSize, int fd, int pos) {
+    OpenFile(int bufferSize, int fdIndex, int pos) {
         this.buffer = new byte[bufferSize];
-        reset(fd, pos);
+        reset(fdIndex, null, pos);
     }
     
-    void reset(int fd, int pos) {
+    void reset(int fdIndex, FileDescriptor fd, int pos) {
+        this.fdIndex = fdIndex;
         this.fd = fd;
         this.position = pos;
-        this.dirty = false;
+        this.dirtyBuffer = false;
     }
 }
