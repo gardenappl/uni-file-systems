@@ -25,6 +25,7 @@ public final class FileSystem {
 
     private long bitmap;
 
+    public static final int END_OF_FILE = -1;
 
     public FileSystem(IOSystem ioSystem, int maxFiles) throws FakeIOException {
         if (ioSystem.blockSize % FileDescriptor.BYTES != 0)
@@ -75,11 +76,14 @@ public final class FileSystem {
      * @param file file obtained via open()
      * @param buffer data buffer to read into
      * @param count how many bytes to read
-     * @return amount of bytes read, 0 if reached end of file
+     * @return amount of bytes read, {@link #END_OF_FILE} if reached end of file
      */
     public int read(OpenFile file, byte[] buffer, int count) {
         if (count > buffer.length)
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
+
+        if (file.position == file.fd.fileSize)
+            return END_OF_FILE;
 
         int bytesRead = 0;
         while (bytesRead < count) {
@@ -268,7 +272,7 @@ public final class FileSystem {
 
     /**
      * Flush cached data into I/O system.
-     * This should be called before saving the emulated I/O system into a real disk.
+     * This should be called before saving the emulated I/O system into real storage
      */
     public void sync() {
         for (int i = 0; i < oftTable.size; i++) {
