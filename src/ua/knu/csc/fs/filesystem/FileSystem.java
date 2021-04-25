@@ -310,8 +310,11 @@ public final class FileSystem {
         }
         if (file.dirtyFd) {
             byte[] fdBlock = new byte[ioSystem.blockSize];
+            ioSystem.readBlock(getBlockWithFd(file.fdIndex), fdBlock);
+
             writeFdToBlock(file.fdIndex, file.fd, fdBlock);
             ioSystem.writeBlock(getBlockWithFd(file.fdIndex), fdBlock);
+            
             file.dirtyFd = false;
         }
     }
