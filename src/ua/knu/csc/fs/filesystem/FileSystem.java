@@ -254,18 +254,6 @@ public final class FileSystem {
     }
 
     /**
-     * @param fdIndex index of file descriptor
-     * @return parsed {@link FileDescriptor}
-     */
-    private FileDescriptor getFdById(int fdIndex) {
-        final int blockId = getBlockWithFd(fdIndex);
-        final int posInBlock = getPositionInBlock(fdIndex);
-        byte[] buffer = new byte[ioSystem.blockSize];
-        ioSystem.readBlock(blockId, buffer);
-        return parseFdInBlock(posInBlock, buffer);
-    }
-
-    /**
      * Writes the data stored in a {@link FileDescriptor} into the proper I/O block
      *
      * @param fdIndex       the file descriptor number
@@ -446,7 +434,9 @@ public final class FileSystem {
         for (int i = 0; i < this.directory.entries.size(); i++) {
             DirectoryEntry entry = this.directory.entries.get(i);
             if (entry.fdIndex != Directory.UNUSED_ENTRY) {
-                FileDescriptor currDescriptor = getFdById(entry.fdIndex);
+                byte[] fdBlock = new byte[ioSystem.blockSize];
+                ioSystem.readBlock(getBlockWithFd(entry.fdIndex), fdBlock);
+                FileDescriptor currDescriptor = parseFdInBlock(entry.fdIndex, fdBlock);
                 sb.append("File name: ").append(Arrays.toString(entry.name))
                         .append(". File length: ").append(currDescriptor.fileSize)
                         .append(System.lineSeparator());
@@ -456,23 +446,20 @@ public final class FileSystem {
         return sb.toString();
     }
 
-    /**
-     *
-     * @param fdIndex the file descriptor number
-     * @param fd the parsed file descriptor
-     * @return open file pointer
-     * @throws FakeIOException wrong descriptor index
-     */
-    public OpenFile openFile(int fdIndex, FileDescriptor fd) throws FakeIOException {
-        for (int i = 0; i < this.directory.entries.size(); i++) {
-            DirectoryEntry entry = this.directory.entries.get(i);
-            if(entry.fdIndex == fdIndex) {
-                OpenFile file = oftTable.allocate(fdIndex, fd, 0);
-                //read the first block of the file into buffer
-                int firstBlockIndex = file.fd.blocks[0];
-                ioSystem.readBlock(firstBlockIndex, file.buffer);
-                //return i;
-                return file;
+
+    public OpenFile openFile(String fileName) throws FakeIOException {
+        if (fileName == null || fileName.length() > 4) {
+            throw new FakeIOException("Max length of file name is 4");
+        }
+        
+        for(DirectoryEntry entry : directory.entries) {
+            if(Arrays.equals(fileName.getBytes(), entry.name)) {
+                int fdIndex = entry.fdIndex;
+                byte[] fdBlock = new byte[ioSystem.blockSize];
+                ioSystem.readBlock(getBlockWithFd(fdIndex), fdBlock);
+                FileDescriptor fd = parseFdInBlock(fdIndex, fdBlock);
+                return oftTable.allocate(fdIndex, fd, 0);
+
             }
         }
 
