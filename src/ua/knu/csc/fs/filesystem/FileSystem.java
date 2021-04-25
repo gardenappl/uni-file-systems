@@ -5,10 +5,12 @@ import ua.knu.csc.fs.MathUtils;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 public final class FileSystem {
     private final IOSystem ioSystem;
 
+    //size of Opened File Table
     private static final int OFT_SIZE = 25;
     private final OpenFileTable oftTable;
     private final OpenFile root;
@@ -30,7 +32,7 @@ public final class FileSystem {
     public FileSystem(IOSystem ioSystem) throws FakeIOException {
         if (ioSystem.blockSize % FileDescriptor.BYTES != 0)
             throw new IllegalArgumentException("This file system only supports I/O devices where block size is a multiple of " + FileDescriptor.BYTES);
-        
+
         this.ioSystem = ioSystem;
         this.oftTable = new OpenFileTable(OFT_SIZE, ioSystem.blockSize);
 
@@ -55,7 +57,7 @@ public final class FileSystem {
         );
 
         // Create init fd
-        this.initFileDescriptor = new FileDescriptor(0, new int[] {
+        this.initFileDescriptor = new FileDescriptor(0, new int[]{
                 FileDescriptor.BLOCK_UNUSED,
                 FileDescriptor.BLOCK_UNUSED,
                 FileDescriptor.BLOCK_UNUSED
@@ -70,7 +72,7 @@ public final class FileSystem {
             writeFdToBlock(0, initFileDescriptor, buffer);
             ioSystem.writeBlock(getBlockWithFd(0), buffer);
 
-            this.root = oftTable.allocate(0, new FileDescriptor(0, new int[] {
+            this.root = oftTable.allocate(0, new FileDescriptor(0, new int[]{
                     FileDescriptor.BLOCK_UNUSED,
                     FileDescriptor.BLOCK_UNUSED,
                     FileDescriptor.BLOCK_UNUSED
@@ -89,9 +91,10 @@ public final class FileSystem {
 
     /**
      * Read contents of file into buffer
-     * @param file file obtained via open()
+     *
+     * @param file   file obtained via open()
      * @param buffer data buffer to read into
-     * @param count how many bytes to read
+     * @param count  how many bytes to read
      * @return amount of bytes read, {@link #END_OF_FILE} if reached end of file
      */
     public int read(OpenFile file, byte[] buffer, int count) {
@@ -137,9 +140,10 @@ public final class FileSystem {
 
     /**
      * Write contents of buffer into file
-     * @param file file obtained via open()
+     *
+     * @param file   file obtained via open()
      * @param buffer data buffer to write from
-     * @param count how many bytes to write
+     * @param count  how many bytes to write
      * @return amount of bytes written
      */
     public int write(OpenFile file, byte[] buffer, int count) throws FakeIOException {
@@ -164,10 +168,10 @@ public final class FileSystem {
                 //Get pointer to next block
                 if (file.fd.blocks[file.position / ioSystem.blockSize] == FileDescriptor.BLOCK_UNUSED) {
                     //Allocate new block
-                    long[] bitmapRef = new long[] { bitmap };
+                    long[] bitmapRef = new long[]{bitmap};
                     int newBlock = allocateDataBlock(bitmapRef);
                     bitmap = bitmapRef[0];
-                    
+
                     file.fd.blocks[file.position / ioSystem.blockSize] = newBlock;
                     file.dirtyFd = true;
                 }
@@ -202,12 +206,12 @@ public final class FileSystem {
         }
         return bytesWritten;
     }
-    
+
     public void seek(OpenFile file, int position) {
         //Swap buffers if the new position is in another block
         int oldBlockNum = file.position / ioSystem.blockSize;
         int newBlockNum = position / ioSystem.blockSize;
-        
+
         if (oldBlockNum != newBlockNum) {
             if (file.dirtyBuffer) {
                 file.dirtyBuffer = false;
@@ -235,14 +239,14 @@ public final class FileSystem {
     }
 
     /**
-     * @param fdIndex index of file descriptor or index in block [0; {@link #numOfFdInBlock} - 1]
+     * @param fdIndex       index of file descriptor or index in block [0; {@link #numOfFdInBlock} - 1]
      * @param fdBlockBuffer this buffer contains the block with the fd
      * @return parsed {@link FileDescriptor}
      */
     private FileDescriptor parseFdInBlock(int fdIndex, byte[] fdBlockBuffer) {
         ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
         buffer.position(getPositionInBlock(fdIndex));
-        return new FileDescriptor(buffer.getInt(), new int[] {
+        return new FileDescriptor(buffer.getInt(), new int[]{
                 buffer.getInt(),
                 buffer.getInt(),
                 buffer.getInt()
@@ -250,9 +254,22 @@ public final class FileSystem {
     }
 
     /**
+     * @param fdIndex index of file descriptor
+     * @return parsed {@link FileDescriptor}
+     */
+    private FileDescriptor getFdById(int fdIndex) {
+        final int blockId = getBlockWithFd(fdIndex);
+        final int posInBlock = getPositionInBlock(fdIndex);
+        byte[] buffer = new byte[ioSystem.blockSize];
+        ioSystem.readBlock(blockId, buffer);
+        return parseFdInBlock(posInBlock, buffer);
+    }
+
+    /**
      * Writes the data stored in a {@link FileDescriptor} into the proper I/O block
-     * @param fdIndex the file descriptor number
-     * @param fd the parsed file descriptor
+     *
+     * @param fdIndex       the file descriptor number
+     * @param fd            the parsed file descriptor
      * @param fdBlockBuffer IO block retrieved by {@link #getBlockWithFd(int)}
      */
     private void writeFdToBlock(int fdIndex, FileDescriptor fd, byte[] fdBlockBuffer) {
@@ -266,6 +283,7 @@ public final class FileSystem {
 
     /**
      * Allocate block for file data
+     *
      * @param bitmap reference to bitmap (should be a single Long)
      * @return pointer to block
      * @throws FakeIOException there is no more room in the I/O system
@@ -301,6 +319,7 @@ public final class FileSystem {
 
     /**
      * Flush cached data into I/O system. This should be called on every CLOSE operation.
+     *
      * @param file open file entry which contains cached FD and data buffer.
      */
     private void sync(OpenFile file) {
@@ -318,6 +337,7 @@ public final class FileSystem {
 
     /**
      * Find a free file descriptor in [2; k] blocks
+     *
      * @return index of the free file descriptor
      * @throws FakeIOException there is no more free file descriptor
      */
@@ -338,6 +358,7 @@ public final class FileSystem {
 
     /**
      * Save the directory to the file system
+     *
      * @throws FakeIOException the write function causes an error
      */
     private void saveDirectory() throws FakeIOException {
@@ -348,6 +369,7 @@ public final class FileSystem {
 
     /**
      * Create new file in the file system
+     *
      * @param fileName name of created file (max name length 4)
      */
     public void create(String fileName) throws FakeIOException {
@@ -413,4 +435,61 @@ public final class FileSystem {
         // Save changes in the directory
         saveDirectory();
     }
+
+    /**
+     * Builds a string with file names and their size
+     * @return string with main info about files
+     */
+    public String listFiles() {
+        StringBuilder sb = new StringBuilder();
+
+        for (int i = 0; i < this.directory.entries.size(); i++) {
+            DirectoryEntry entry = this.directory.entries.get(i);
+            if (entry.fdIndex != Directory.UNUSED_ENTRY) {
+                FileDescriptor currDescriptor = getFdById(entry.fdIndex);
+                sb.append("File name: ").append(Arrays.toString(entry.name))
+                        .append(". File length: ").append(currDescriptor.fileSize)
+                        .append(System.lineSeparator());
+            }
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     *
+     * @param fdIndex the file descriptor number
+     * @param fd the parsed file descriptor
+     * @return open file pointer
+     * @throws FakeIOException wrong descriptor index
+     */
+    public OpenFile openFile(int fdIndex, FileDescriptor fd) throws FakeIOException {
+        for (int i = 0; i < this.directory.entries.size(); i++) {
+            DirectoryEntry entry = this.directory.entries.get(i);
+            if(entry.fdIndex == fdIndex) {
+                OpenFile file = oftTable.allocate(fdIndex, fd, 0);
+                //read the first block of the file into buffer
+                int firstBlockIndex = file.fd.blocks[0];
+                ioSystem.readBlock(firstBlockIndex, file.buffer);
+                //return i;
+                return file;
+            }
+        }
+
+        throw new FakeIOException("Can't open the file. Wrong descriptor index");
+    }
+
+    /**
+     * Closes opened file
+     * @param file file that must be closed
+     */
+    public void closeFile(OpenFile file) {
+        if(file == null) {
+            throw new NullPointerException("Null file passed to close function");
+        }
+        sync(file);
+        oftTable.deallocate(file);
+    }
+
+
 }
