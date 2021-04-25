@@ -26,6 +26,9 @@ final class FileDescriptor {
         this.blocks = blocks;
     }
 
+    /**
+     * @return true if this file descriptor can be overwritten by another FD for a new file.
+     */
     public boolean isUnused() {
         return (fileSize == 0 && blocks[0] == 0);
     }
