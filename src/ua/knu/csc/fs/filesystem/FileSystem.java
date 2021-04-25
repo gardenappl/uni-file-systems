@@ -239,14 +239,14 @@ public final class FileSystem {
     }
 
     /**
-     * @param fdIndex       index of file descriptor or index in block [0; {@link #numOfFdInBlock} - 1]
+     * @param fdIndex index of file descriptor or index in block [0; {@link #numOfFdInBlock} - 1]
      * @param fdBlockBuffer this buffer contains the block with the fd
      * @return parsed {@link FileDescriptor}
      */
     private FileDescriptor parseFdInBlock(int fdIndex, byte[] fdBlockBuffer) {
         ByteBuffer buffer = ByteBuffer.wrap(fdBlockBuffer);
         buffer.position(getPositionInBlock(fdIndex));
-        return new FileDescriptor(buffer.getInt(), new int[]{
+        return new FileDescriptor(buffer.getInt(), new int[] {
                 buffer.getInt(),
                 buffer.getInt(),
                 buffer.getInt()
@@ -255,9 +255,8 @@ public final class FileSystem {
 
     /**
      * Writes the data stored in a {@link FileDescriptor} into the proper I/O block
-     *
-     * @param fdIndex       the file descriptor number
-     * @param fd            the parsed file descriptor
+     * @param fdIndex the file descriptor number
+     * @param fd the parsed file descriptor
      * @param fdBlockBuffer IO block retrieved by {@link #getBlockWithFd(int)}
      */
     private void writeFdToBlock(int fdIndex, FileDescriptor fd, byte[] fdBlockBuffer) {
@@ -328,7 +327,6 @@ public final class FileSystem {
 
     /**
      * Find a free file descriptor in [2; k] blocks
-     *
      * @return index of the free file descriptor
      * @throws FakeIOException there is no more free file descriptor
      */
@@ -349,7 +347,6 @@ public final class FileSystem {
 
     /**
      * Save the directory to the file system
-     *
      * @throws FakeIOException the write function causes an error
      */
     private void saveDirectory() throws FakeIOException {
@@ -360,7 +357,6 @@ public final class FileSystem {
 
     /**
      * Create new file in the file system
-     *
      * @param fileName name of created file (max name length 4)
      */
     public void create(String fileName) throws FakeIOException {
@@ -386,6 +382,10 @@ public final class FileSystem {
         saveDirectory();
     }
 
+    /**
+     * Destroy a file in the file system
+     * @param fileName name of the file
+     */
     public void destroy(String fileName) throws FakeIOException {
         // Checking length of file name
         if (fileName.length() > 4) {
@@ -395,11 +395,18 @@ public final class FileSystem {
         // Find the file descriptor by searching the directory
         // Remove the directory entry
         byte[] fileNameBytes = fileName.getBytes(StandardCharsets.UTF_8);
-        int removeFdIndex = directory.removeEntry(fileNameBytes);
+        int entryIndex = directory.findEntry(fileNameBytes);
+        int removeFdIndex = directory.entries.get(entryIndex).fdIndex;
+
+        if (oftTable.isOpened(removeFdIndex)) {
+            // Checking if file is opened
+            throw new FakeIOException("File is opened");
+        }
+        directory.removeEntry(entryIndex);
+
 
         // Scan the file descriptor to find the data blocks which must be freed,
         // and update the bitmap
-
         byte[] buffer = new byte[ioSystem.blockSize];
         ioSystem.readBlock(getBlockWithFd(removeFdIndex), buffer);
         FileDescriptor fileDescriptor = parseFdInBlock(getBlockWithFd(removeFdIndex), buffer);
@@ -419,7 +426,7 @@ public final class FileSystem {
         );
         ioSystem.writeBlock(getBlockWithFd(removeFdIndex), buffer);
 
-        //Save updated bitmap
+        // Save updated bitmap
         MathUtils.toBytes(bitmap, buffer);
         ioSystem.writeBlock(0, buffer);
 
@@ -448,7 +455,6 @@ public final class FileSystem {
 
         return sb.toString();
     }
-
 
     public OpenFile openFile(String fileName) throws FakeIOException {
         if (fileName == null || fileName.length() > 4) {
@@ -480,6 +486,4 @@ public final class FileSystem {
         sync(file);
         oftTable.deallocate(file);
     }
-
-
 }

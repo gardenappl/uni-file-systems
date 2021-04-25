@@ -42,6 +42,14 @@ public class Directory {
     }
 
     /**
+     * @param entry directory entry
+     * @return true if entry is unused, else - false
+     */
+    public static boolean isUnused(DirectoryEntry entry) {
+        return entry.fdIndex == Directory.UNUSED_ENTRY;
+    }
+
+    /**
      * Convert this directory into byte array
      * @return byte array that represents the directory
      */
@@ -56,6 +64,12 @@ public class Directory {
         return byteBuffer.array();
     }
 
+    /**
+     * Create new entry in the directory
+     * @param name file name
+     * @param fdIndex index of the file descriptor
+     * @throws FakeIOException file already exists
+     */
     public void createEntry(byte[] name, int fdIndex) throws FakeIOException {
         // Create name of 4 byte length
         byte[] name4Byte = new byte[4];
@@ -64,7 +78,7 @@ public class Directory {
         // Looking for free entry
         int entryIndex = -1;
         for (int i = 0; i < entries.size(); i++) {
-            if (entries.get(i).fdIndex == UNUSED_ENTRY) {
+            if (isUnused(entries.get(i))) {
                 if (entryIndex == -1) {
                     entryIndex = i;
                 }
@@ -82,19 +96,32 @@ public class Directory {
         }
     }
 
-    public int removeEntry(byte[] name) throws FakeIOException {
+    /**
+     * Find the entry in the directory
+     * @param name file name
+     * @return index of the entry in the directory
+     * @throws FakeIOException file doesn't exist
+     */
+    public int findEntry(byte[] name) throws FakeIOException {
         // Create name of 4 byte length
         byte[] name4Byte = new byte[4];
         System.arraycopy(name, 0, name4Byte, 0, name.length);
 
-        // Looking for entry and set fdIndex to UNUSED_ENTRY
+        // Looking for entry and return entry index
         for (int i = 0; i < entries.size(); i++) {
             if (Arrays.equals(entries.get(i).name, name4Byte)) {
-                int fdIndex = entries.get(i).fdIndex;
-                entries.get(i).fdIndex = UNUSED_ENTRY;
-                return fdIndex;
+                return i;
             }
         }
         throw new FakeIOException("File doesn't exist");
+    }
+
+    /**
+     * Remove entry from the directory by changing fdIndex in {@link DirectoryEntry}
+     * to {@link #UNUSED_ENTRY}
+     * @param entryIndex index of the entry in the directory
+     */
+    public void removeEntry(int entryIndex) {
+        entries.get(entryIndex).fdIndex = UNUSED_ENTRY;
     }
 }

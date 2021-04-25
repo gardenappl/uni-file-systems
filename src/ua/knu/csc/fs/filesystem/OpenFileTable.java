@@ -52,4 +52,13 @@ final class OpenFileTable {
         else
             return entryPool[index];
     }
+
+    public boolean isOpened(int fdIndex) {
+        for (OpenFile entry : entryPool) {
+            if (entry.fdIndex == fdIndex) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
