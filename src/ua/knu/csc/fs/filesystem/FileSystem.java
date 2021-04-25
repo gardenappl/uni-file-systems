@@ -348,7 +348,15 @@ public final class FileSystem {
         saveDirectory();
     }
 
+<<<<<<< Updated upstream
     public void destroy(String fileName) throws IOException {
+=======
+    /**
+     * Destroy a file in the file system
+     * @param fileName name of the file
+     */
+    public void destroy(String fileName) throws FakeIOException {
+>>>>>>> Stashed changes
         // Checking length of file name
         if (fileName.length() > 4) {
             throw new FakeIOException("File doesn't exist");
@@ -357,13 +365,26 @@ public final class FileSystem {
         // Find the file descriptor by searching the directory
         // Remove the directory entry
         byte[] fileNameBytes = fileName.getBytes(StandardCharsets.UTF_8);
-        int removeFdIndex = directory.removeEntry(fileNameBytes);
+        int entryIndex = directory.findEntry(fileNameBytes);
+        int removeFdIndex = directory.entries.get(entryIndex).fdIndex;
 
+        if (oftTable.isOpened(removeFdIndex)) {
+            // Checking if file is opened
+            throw new FakeIOException("File is opened");
+        }
+        directory.removeEntry(entryIndex);
+
+
+<<<<<<< Updated upstream
         // Update the bitmap to reflect the freed blocks
         byte[] bitmapBlock = new byte[ioSystem.blockSize];
         ioSystem.readBlock(0, bitmapBlock);
         long bitmap = MathUtils.toLong(bitmapBlock);
 
+=======
+        // Scan the file descriptor to find the data blocks which must be freed,
+        // and update the bitmap
+>>>>>>> Stashed changes
         byte[] buffer = new byte[ioSystem.blockSize];
         FileDescriptor fileDescriptor = readFdBlock(removeFdIndex, buffer);
         for (int i = 0; i < FileDescriptor.BLOCK_COUNT; i++) {
@@ -382,6 +403,14 @@ public final class FileSystem {
                 new FileDescriptor(0, new int[FileDescriptor.BLOCK_COUNT]),
                 buffer
         );
+<<<<<<< Updated upstream
+=======
+        ioSystem.writeBlock(getBlockWithFd(removeFdIndex), buffer);
+
+        // Save updated bitmap
+        MathUtils.toBytes(bitmap, buffer);
+        ioSystem.writeBlock(0, buffer);
+>>>>>>> Stashed changes
 
         // Save changes in the directory
         saveDirectory();

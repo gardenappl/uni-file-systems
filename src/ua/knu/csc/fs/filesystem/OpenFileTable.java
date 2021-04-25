@@ -36,4 +36,13 @@ final class OpenFileTable {
     public void deallocate(OpenFile entry) {
         entry.fd = FD_UNUSED;
     }
+
+    public boolean isOpened(int fdIndex) {
+        for (OpenFile entry : entryPool) {
+            if (entry.fdIndex == fdIndex) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
