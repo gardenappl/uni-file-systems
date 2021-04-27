@@ -1,7 +1,10 @@
 package ua.knu.csc.fs;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Scanner;
 
@@ -10,16 +13,14 @@ public class Main {
         if (args.length != 0 && args.length != 2)
             System.err.println("Should have either no arguments or 2 arguments");
 
-        PresentationShell shell;
         if (args.length == 0) {
-            shell = new PresentationShell(System.out, new Scanner(System.in));
+            new PresentationShell(System.out, new Scanner(System.in)).doCommands();
         } else {
-            try (Scanner scanner = new Scanner(args[0])) {
+            try (Scanner scanner = new Scanner(new File(args[0]))) {
                 try (PrintStream printStream = new PrintStream(args[1])) {
-                    shell = new PresentationShell(printStream, scanner);
+                    new PresentationShell(printStream, scanner).doCommands();
                 }
             }
         }
-        shell.doCommands();
     }
 }
