@@ -3,12 +3,17 @@ package ua.knu.csc.fs;
 import ua.knu.csc.fs.filesystem.FakeIOException;
 import ua.knu.csc.fs.filesystem.FileSystem;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Scanner;
 
 public class PresentationShell {
-    static Scanner input = new Scanner(System.in);
+    static String INPUT_FILE = "input.txt";
+    static String OUTPUT_FILE = "output.txt";
 
     public static boolean checkCommandSize(String[] command) {
         boolean result = false;
@@ -113,18 +118,17 @@ public class PresentationShell {
         System.out.println("disk saved");
     }
 
-    public static String[] getCommand() {
+    public static String[] getCommand(Scanner input) {
         return input.nextLine().split("\\s+");
     }
 
-    public static void startFileSystem() {
-        System.out.println("Welcome to the file system\n");
+    public static void doCommands(Scanner input) {
         FileSystem fs = null;
+        String[] command;
 
-        try {
-            String[] command;
-            while (true) {
-                command = getCommand();
+        while (input.hasNextLine()) {
+            try {
+                command = getCommand(input);
                 if (fs == null && !command[0].equals("in")) {
                     System.out.println("File system isn't created");
                     continue;
@@ -134,59 +138,51 @@ public class PresentationShell {
                     continue;
                 }
                 switch (command[0]) {
-                    case "cr":
-                        cr(command, fs);
-                        continue;
-                    case "de":
-                        de(command, fs);
-                        continue;
-                    case "op":
-                        op(command, fs);
-                        continue;
-                    case "cl":
-                        cl(command, fs);
-                        continue;
-                    case "rd":
-                        rd(command, fs);
-                        continue;
-                    case "wr":
-                        wr(command, fs);
-                        continue;
-                    case "sk":
-                        sk(command, fs);
-                        continue;
-                    case "dr":
-                        dr(fs);
-                        continue;
-                    case "in":
-                        fs = in(command, fs);
-                        continue;
-                    case "sv":
-                        sv(command, fs);
-                        continue;
-                    case "ex":
-                        break;
-                    default:
-                        System.out.println("Wrong command");
-                        continue;
+                    case "cr" -> cr(command, fs);
+                    case "de" -> de(command, fs);
+                    case "op" -> op(command, fs);
+                    case "cl" -> cl(command, fs);
+                    case "rd" -> rd(command, fs);
+                    case "wr" -> wr(command, fs);
+                    case "sk" -> sk(command, fs);
+                    case "dr" -> dr(fs);
+                    case "in" -> fs = in(command, fs);
+                    case "sv" -> sv(command, fs);
+                    default -> System.out.println("Wrong command");
                 }
-                break;
+            } catch (FakeIOException e) {
+                System.out.println(e.getMessage());
             }
-        } catch (FakeIOException e) {
-            System.out.println(e.getMessage());
         }
     }
 
+    public static void startFileSystem() {
+        // Input stream
+        Scanner input;
+        try {
+            input = new Scanner(new File(INPUT_FILE));
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+            return;
+        }
+
+        // Output stream
+        PrintStream printStream = null;
+        try {
+            printStream = new PrintStream(new FileOutputStream(OUTPUT_FILE));
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        System.setOut(printStream);
+
+        // Do commands
+        doCommands(input);
+
+        // Close
+        input.close();
+    }
+
     public static void main(String[] args) {
-//        try {
-//            // 4 cylinders, 2 surfaces, 8 sectors/track
-//            // according to presentation.pdf
-//            // 4 * 2 * 8 = 64 bytes/sector
-//            // IOSystem vdd = new IOSystem(64, 64, IOSystem.DEFAULT_SAVE_FILE);
-//            // FileSystem fs = new FileSystem(vdd);
-//            startFileSystem();
-//        } catch (FakeIOException e) {
-//            System.out.println(e.getMessage());
-//        }
+        startFileSystem();
     }
 }
