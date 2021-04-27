@@ -1,10 +1,15 @@
 package ua.knu.csc.fs.filesystem;
 
-public final class OpenFile {
+final class OpenFile {
     /**
      * Current buffer for read/write operations, corresponds to one data block.
      */
     byte[] buffer;
+
+    /**
+     * The absolute index of the I/O block which the buffer corresponds to.
+     */
+    int bufferBlockNum;
 
     /**
      * Current read/write position relative to start of file
@@ -48,6 +53,14 @@ public final class OpenFile {
         this.fdIndex = fdIndex;
         this.fd = fd;
         this.position = pos;
+        this.dirtyBuffer = false;
+    }
+
+    void reset() {
+        this.buffer = null;
+        this.fdIndex = OpenFileTable.FD_UNUSED;
+        this.fd = null;
+        this.position = 0;
         this.dirtyBuffer = false;
     }
 }
