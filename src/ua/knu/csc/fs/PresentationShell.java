@@ -8,7 +8,10 @@ import java.util.Arrays;
 import java.util.Scanner;
 
 public class PresentationShell {
-    static Scanner input = new Scanner(System.in);
+    private Scanner input = new Scanner(System.in);
+    private String currentFileName = null;
+    private FileSystem currentFileSystem = null;
+    private IOSystem currentFileSystem = null;
 
     public static boolean checkCommandSize(String[] command) {
         boolean result = false;
@@ -40,11 +43,12 @@ public class PresentationShell {
 
     public static FileSystem in(String[] command, FileSystem fs) throws FakeIOException {
         String message;
-        if (fs == null || !fs.getFileName().equals(command[5])) {
+        if (fs == null || !command[5].equals(currentFileName)) {
             message = "disk initialized";
         } else {
             message = "disk restored";
         }
+        currentFileName = command[5];
 
         int blockCount =
                 Integer.parseInt(command[1]) *
@@ -71,19 +75,22 @@ public class PresentationShell {
     }
 
     public static void op(String[] command, FileSystem fs) throws FakeIOException {
-        int index = fs.openFile();
+        int index = fs.openFile(command[1]);
         System.out.println("file " + command[1] + " opened, index=" + index);
     }
 
     public static void cl(String[] command, FileSystem fs) throws FakeIOException {
-        fs.closeFile();
-        System.out.println("file <name> closed");
+        int openFile = Integer.parseInt(command[1]);
+
+        String name = fs.getFileName(openFile);
+        fs.closeFile(openFile);
+        System.out.println("file " + name + " closed");
     }
 
     public static void rd(String[] command, FileSystem fs) throws FakeIOException {
         byte[] buffer = new byte[Integer.parseInt(command[2])];
 
-        int readCount = fs.read(, buffer, buffer.length);
+        int readCount = fs.read(Integer.parseInt(command[1]), buffer, buffer.length);
         System.out.println(readCount + " bytes read: " + new String(buffer, StandardCharsets.UTF_8));
     }
 
@@ -94,13 +101,13 @@ public class PresentationShell {
         byte[] buffer = new byte[Integer.parseInt(command[3])];
         Arrays.fill(buffer, command[2].getBytes(StandardCharsets.UTF_8)[0]);
 
-        fs.write(, buffer, buffer.length);
+        fs.write(Integer.parseInt(command[1]), buffer, buffer.length);
         System.out.println("<count> bytes written");
     }
 
     public static void sk(String[] command, FileSystem fs) throws FakeIOException {
         int pos = Integer.parseInt(command[2]);
-        fs.seek(, pos);
+        fs.seek(Integer.parseInt(command[1]), pos);
         System.out.println("current position is " + pos);
     }
 

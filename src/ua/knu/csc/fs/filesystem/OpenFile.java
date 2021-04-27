@@ -1,6 +1,6 @@
 package ua.knu.csc.fs.filesystem;
 
-public final class OpenFile {
+final class OpenFile {
     /**
      * Current buffer for read/write operations, corresponds to one data block.
      */

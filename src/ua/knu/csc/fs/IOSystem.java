@@ -8,7 +8,6 @@ public final class IOSystem {
     private final byte[][] ldisk;
     public final int blockSize;
     public final int blockCount;
-    private final String saveFile;
 
     public static final String DEFAULT_SAVE_FILE = "virtualdisk.bin";
     
@@ -19,11 +18,6 @@ public final class IOSystem {
 
         this.blockCount = blockCount;
         this.blockSize = blockSize;
-        this.saveFile = saveFile;
-    }
-
-    public String getSaveFile() {
-        return saveFile;
     }
 
     /**
@@ -47,7 +41,7 @@ public final class IOSystem {
     /**
      * Save contents of virtual disk to the real filesystem.
      */
-    public void saveToFile() throws IOException {
+    public void saveToFile(String saveFile) throws IOException {
         try (FileOutputStream outputStream = new FileOutputStream(saveFile)) {
 
             for (byte[] sector : ldisk)
@@ -58,7 +52,7 @@ public final class IOSystem {
     /**
      * Read contents of virtual disk from the real filesystem.
      */
-    public void readFromFile() throws IOException {
+    public void readFromFile(String saveFile) throws IOException {
         try (FileInputStream inputStream = new FileInputStream(saveFile)) {
             for (byte[] sector : ldisk) {
                 if (inputStream.read(sector) != blockSize)

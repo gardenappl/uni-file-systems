@@ -72,15 +72,17 @@ public final class FileSystem {
             writeFdToBlock(0, initFileDescriptor, buffer);
             ioSystem.writeBlock(getBlockWithFd(0), buffer);
 
-            this.root = oftTable.allocate(0, new FileDescriptor(0, new int[]{
+            int rootIndex = oftTable.allocate(0, new FileDescriptor(0, new int[]{
                     FileDescriptor.BLOCK_UNUSED,
                     FileDescriptor.BLOCK_UNUSED,
                     FileDescriptor.BLOCK_UNUSED
             }), 0);
+            root = oftTable.getOpenFile(rootIndex);
 
             this.directory = new Directory();
         } else {
-            this.root = oftTable.allocate(0, fileDescriptor, 0);
+            int rootIndex = oftTable.allocate(0, fileDescriptor, 0);
+            root = oftTable.getOpenFile(rootIndex);
 
             // Read directory data from file system
             byte[] dirBuffer = new byte[fileDescriptor.fileSize];
@@ -89,19 +91,19 @@ public final class FileSystem {
         }
     }
 
-    public String getFileName() {
-        return ioSystem.getSaveFile();
-    }
-
     /**
      * Read contents of file into buffer
      *
-     * @param file   file obtained via open()
+     * @param openFile open file index obtained via open()
      * @param buffer data buffer to read into
-     * @param count  how many bytes to read
+     * @param count how many bytes to read
      * @return amount of bytes read, {@link #END_OF_FILE} if reached end of file
      */
-    public int read(OpenFile file, byte[] buffer, int count) {
+    public int read(int openFile, byte[] buffer, int count) throws FakeIOException {
+        return read(oftTable.getOpenFileSafe(openFile), buffer, count);
+    }
+
+    private int read(OpenFile file, byte[] buffer, int count) {
         if (count > buffer.length)
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
 
@@ -145,12 +147,16 @@ public final class FileSystem {
     /**
      * Write contents of buffer into file
      *
-     * @param file   file obtained via open()
+     * @param openFile open file index obtained via open()
      * @param buffer data buffer to write from
-     * @param count  how many bytes to write
+     * @param count how many bytes to write
      * @return amount of bytes written
      */
-    public int write(OpenFile file, byte[] buffer, int count) throws FakeIOException {
+    public int write(int openFile, byte[] buffer, int count) throws FakeIOException {
+        return write(oftTable.getOpenFileSafe(openFile), buffer, count);
+    }
+
+    private int write(OpenFile file, byte[] buffer, int count) throws FakeIOException {
         if (count > buffer.length)
             throw new IllegalArgumentException("Byte count is bigger than buffer size!");
 
@@ -211,7 +217,20 @@ public final class FileSystem {
         return bytesWritten;
     }
 
-    public void seek(OpenFile file, int position) {
+    /**
+     * Move current read/write position in open file
+     * @param openFile index of open file, obtained via {@link #openFile(String)}
+     * @param position new read/write position
+     */
+    public void seek(int openFile, int position) throws FakeIOException {
+        seek(oftTable.getOpenFileSafe(openFile), position);
+    }
+
+    private void seek(OpenFile file, int position) throws FakeIOException {
+        if (position < 0 || position >= file.fd.fileSize)
+            throw new FakeIOException("Can't seek to position " + position +
+                    ", file size is " + file.fd.fileSize);
+
         //Swap buffers if the new position is in another block
         int oldBlockNum = file.position / ioSystem.blockSize;
         int newBlockNum = position / ioSystem.blockSize;
@@ -285,14 +304,6 @@ public final class FileSystem {
             throw new FakeIOException("No room for new data block!");
         bitmap[0] = MathUtils.setOneByte(bitmap[0], freeBlock);
         return reservedBlocks + freeBlock;
-    }
-
-    /**
-     * Temporary method for testing
-     * TODO: remove
-     */
-    public OpenFile getRootDirectory() {
-        return root;
     }
 
     /**
@@ -393,7 +404,7 @@ public final class FileSystem {
     public void destroy(String fileName) throws FakeIOException {
         // Checking length of file name
         if (fileName.length() > 4) {
-            throw new FakeIOException("File doesn't exist");
+            throw new FakeIOException("Illegal file name");
         }
 
         // Find the file descriptor by searching the directory
@@ -460,34 +471,50 @@ public final class FileSystem {
         return sb.toString();
     }
 
-    public OpenFile openFile(String fileName) throws FakeIOException {
+    /**
+     * Open an existing file for read/write operations.
+     * @param fileName name of the file in file system
+     * @return index of opened file, usable for {@link #read(int, byte[], int)} and {@link #write(int, byte[], int)}
+     */
+    public int openFile(String fileName) throws FakeIOException {
         if (fileName == null || fileName.length() > 4) {
             throw new FakeIOException("Max length of file name is 4");
         }
         
-        for(DirectoryEntry entry : directory.entries) {
-            if(Arrays.equals(fileName.getBytes(), entry.name)) {
+        for (DirectoryEntry entry : directory.entries) {
+            if (Arrays.equals(fileName.getBytes(), entry.name)) {
                 int fdIndex = entry.fdIndex;
+                
                 byte[] fdBlock = new byte[ioSystem.blockSize];
                 ioSystem.readBlock(getBlockWithFd(fdIndex), fdBlock);
                 FileDescriptor fd = parseFdInBlock(fdIndex, fdBlock);
+                
                 return oftTable.allocate(fdIndex, fd, 0);
-
             }
         }
 
-        throw new FakeIOException("Can't open the file. Wrong descriptor index");
+        throw new FakeIOException("File does not exist: " + fileName);
     }
 
     /**
-     * Closes opened file
-     * @param file file that must be closed
+     * Closes opened file.
+     * @param openFile index of open file, obtainable via {@link #openFile(String)}
      */
-    public void closeFile(OpenFile file) {
-        if(file == null) {
-            throw new NullPointerException("Null file passed to close function");
-        }
+    public void closeFile(int openFile) throws FakeIOException {
+        closeFile(oftTable.getOpenFileSafe(openFile));
+    }
+    
+    private void closeFile(OpenFile file) {
         sync(file);
         oftTable.deallocate(file);
+    }
+
+    public String getFileName(int openFile) throws FakeIOException {
+        int fdIndex = oftTable.getOpenFileSafe(openFile).fdIndex;
+        for (DirectoryEntry entry : directory.entries) {
+            if (entry.fdIndex == fdIndex)
+                return new String(entry.name, StandardCharsets.UTF_8);
+        }
+        throw new FakeIOException("File is open but not not found in the root directory? Something is very wrong.");
     }
 }
