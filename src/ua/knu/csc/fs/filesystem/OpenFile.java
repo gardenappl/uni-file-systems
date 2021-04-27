@@ -7,6 +7,11 @@ final class OpenFile {
     byte[] buffer;
 
     /**
+     * The absolute index of the I/O block which the buffer corresponds to.
+     */
+    int bufferBlockNum;
+
+    /**
      * Current read/write position relative to start of file
      */
     int position;
@@ -48,6 +53,14 @@ final class OpenFile {
         this.fdIndex = fdIndex;
         this.fd = fd;
         this.position = pos;
+        this.dirtyBuffer = false;
+    }
+
+    void reset() {
+        this.buffer = null;
+        this.fdIndex = OpenFileTable.FD_UNUSED;
+        this.fd = null;
+        this.position = 0;
         this.dirtyBuffer = false;
     }
 }

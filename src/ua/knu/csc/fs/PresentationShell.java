@@ -3,193 +3,169 @@ package ua.knu.csc.fs;
 import ua.knu.csc.fs.filesystem.FakeIOException;
 import ua.knu.csc.fs.filesystem.FileSystem;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.PrintStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Scanner;
 
 public class PresentationShell {
-    private static String currentFileName = null;
-    private static FileSystem currentFileSystem = null;
-    private static IOSystem currentIOSystem = null;
-    static String INPUT_FILE = "input.txt";
-    static String OUTPUT_FILE = "output.txt";
+    private FileSystem currentFS = null;
+    private IOSystem currentIOSystem = null;
 
-    public static boolean checkCommandSize(String[] command) {
-        boolean result = false;
-        switch (command[0]) {
-            case "dr":
-            case "ex":
-                if (command.length == 1) result = true;
-                break;
-            case "cr":
-            case "de":
-            case "op":
-            case "cl":
-            case "sv":
-                if (command.length == 2) result = true;
-                break;
-            case "rd":
-            case "sk":
-                if (command.length == 3) result = true;
-                break;
-            case "wr":
-                if (command.length == 4) result = true;
-                break;
-            case "in":
-                if (command.length == 6) result = true;
-                break;
-        }
-        return result;
+    private final PrintStream output;
+    private final Scanner input;
+
+    public PresentationShell(PrintStream output, Scanner input) {
+        this.output = output;
+        this.input = input;
     }
 
-    public static FileSystem in(String[] command, FileSystem fs) throws FakeIOException {
+    private void load(
+            int cylinderCount,
+            int surfaceCount,
+            int sectorCount,
+            int sectorSize,
+            String saveFileName
+    ) throws IOException {
+        File saveFile = new File(saveFileName);
+
+        int blockCount = cylinderCount * surfaceCount * sectorCount;
+
+        currentIOSystem = new IOSystem(blockCount, sectorSize);
+
         String message;
-        if (fs == null || !command[5].equals(currentFileName)) {
-            message = "disk initialized";
-        } else {
+        if (saveFile.isFile()) {
+            currentIOSystem.readFromFile(saveFileName);
             message = "disk restored";
+        } else {
+            message = "disk initialized";
         }
-        currentFileName = command[5];
+        currentFS = new FileSystem(currentIOSystem);
 
-        int blockCount =
-                Integer.parseInt(command[1]) *
-                Integer.parseInt(command[2]) *
-                Integer.parseInt(command[3]);
-        int blockSize = Integer.parseInt(command[4]);
-
-        IOSystem vdd = new IOSystem(blockCount, blockSize, command[5]);
-        FileSystem new_fs = new FileSystem(vdd);
-
-        // Print result
-        System.out.println(message);
-        return new_fs;
+        output.println(message);
     }
 
-    public static void cr(String[] command, FileSystem fs) throws FakeIOException {
-        fs.create(command[1]);
-        System.out.println("file " + command[1] + " created");
+    private void create(String fileName) throws FakeIOException {
+        currentFS.create(fileName);
+        output.println("file " + fileName + " created");
     }
 
-    public static void de(String[] command, FileSystem fs) throws FakeIOException {
-        fs.destroy(command[1]);
-        System.out.println("file " + command[1] + " destroyed");
+    private void destroy(String fileName) throws FakeIOException {
+        currentFS.destroy(fileName);
+        output.println("file " + fileName + " destroyed");
     }
 
-    public static void op(String[] command, FileSystem fs) throws FakeIOException {
-        int index = fs.openFile(command[1]);
-        System.out.println("file " + command[1] + " opened, index=" + index);
+    private void open(String fileName) throws FakeIOException {
+        int index = currentFS.openFile(fileName);
+        output.println("file " + fileName + " opened, index=" + index);
     }
 
-    public static void cl(String[] command, FileSystem fs) throws FakeIOException {
-        int openFile = Integer.parseInt(command[1]);
-
-        String name = fs.getFileName(openFile);
-        fs.closeFile(openFile);
-        System.out.println("file " + name + " closed");
+    private void close(int fileIndex) throws FakeIOException {
+        String name = currentFS.getFileName(fileIndex);
+        currentFS.closeFile(fileIndex);
+        output.println("file " + name + " closed");
     }
 
-    public static void rd(String[] command, FileSystem fs) throws FakeIOException {
-        byte[] buffer = new byte[Integer.parseInt(command[2])];
+    private void read(int fileIndex, int count) throws FakeIOException {
+        byte[] buffer = new byte[count];
 
-        int readCount = fs.read(Integer.parseInt(command[1]), buffer, buffer.length);
-        System.out.println(readCount + " bytes read: " + new String(buffer, StandardCharsets.UTF_8));
+        int readCount = currentFS.read(fileIndex, buffer, count);
+        if (readCount == FileSystem.END_OF_FILE)
+            output.println("end of file");
+        else
+            output.println(readCount + " bytes read: " +
+                    new String(buffer, 0, readCount, StandardCharsets.UTF_8));
     }
 
-    public static void wr(String[] command, FileSystem fs) throws FakeIOException {
-        if (command[2].length() != 1) {
-            throw new FakeIOException("Wrong input");
-        }
-        byte[] buffer = new byte[Integer.parseInt(command[3])];
-        Arrays.fill(buffer, command[2].getBytes(StandardCharsets.UTF_8)[0]);
+    private void write(int fileIndex, char c, int count) throws FakeIOException {
+        byte[] buffer = new byte[count];
+        Arrays.fill(buffer, (byte) c);
 
-        fs.write(Integer.parseInt(command[1]), buffer, buffer.length);
-        System.out.println("<count> bytes written");
+        int writeCount = currentFS.write(fileIndex, buffer, buffer.length);
+        output.println(writeCount + " bytes written");
     }
 
-    public static void sk(String[] command, FileSystem fs) throws FakeIOException {
-        int pos = Integer.parseInt(command[2]);
-        fs.seek(Integer.parseInt(command[1]), pos);
-        System.out.println("current position is " + pos);
+    private void seek(int fileIndex, int pos) throws FakeIOException {
+        currentFS.seek(fileIndex, pos);
+        output.println("current position is " + pos);
     }
 
-    public static void dr(FileSystem fs) throws FakeIOException {
-        System.out.println(fs.listFiles());
+    private void dir() throws FakeIOException {
+        output.println(currentFS.listFiles());
     }
 
-    public static void sv(String[] command, FileSystem fs) throws FakeIOException {
-        fs.sync();
-        System.out.println("disk saved");
+    private void save(String saveFileName) throws IOException {
+        currentFS.sync();
+        currentIOSystem.saveToFile(saveFileName);
+        output.println("disk saved");
     }
 
-    public static String[] getCommand(Scanner input) {
+    private String[] getCommand(Scanner input) {
         return input.nextLine().split("\\s+");
     }
 
-    public static void doCommands(Scanner input) {
-        FileSystem fs = null;
+    private boolean checkCommandSize(String[] command) {
+        return switch (command[0]) {
+            case "dr", "ex" -> command.length == 1;
+            case "cr", "de", "op", "cl", "sv" -> command.length == 2;
+            case "rd", "sk" -> command.length == 3;
+            case "wr" -> command.length == 4;
+            case "in" -> command.length == 6;
+            default -> true;
+        };
+    }
+
+    public void doCommands() throws IOException {
         String[] command;
 
         while (input.hasNextLine()) {
             try {
                 command = getCommand(input);
-                if (fs == null && !command[0].equals("in")) {
-                    System.out.println("File system isn't created");
+                if (currentFS == null && !command[0].equals("in")) {
+                    output.println("File system isn't created");
                     continue;
                 }
                 if (!checkCommandSize(command)) {
-                    System.out.println("Wrong number of arguments");
+                    output.println("Wrong argument count");
                     continue;
                 }
                 switch (command[0]) {
-                    case "cr" -> cr(command, fs);
-                    case "de" -> de(command, fs);
-                    case "op" -> op(command, fs);
-                    case "cl" -> cl(command, fs);
-                    case "rd" -> rd(command, fs);
-                    case "wr" -> wr(command, fs);
-                    case "sk" -> sk(command, fs);
-                    case "dr" -> dr(fs);
-                    case "in" -> fs = in(command, fs);
-                    case "sv" -> sv(command, fs);
-                    default -> System.out.println("Wrong command");
+                    case "cr" -> create(command[1]);
+                    case "de" -> destroy(command[1]);
+                    case "op" -> open(command[1]);
+                    case "cl" -> close(Integer.parseInt(command[1]));
+                    case "rd" -> read(Integer.parseInt(command[1]), Integer.parseInt(command[2]));
+                    case "wr" ->  {
+                        if (command[2].length() > 1) {
+                            output.println("Insert one char at a time, please.");
+                            continue;
+                        }
+                        write(
+                                Integer.parseInt(command[1]),
+                                command[2].charAt(0),
+                                Integer.parseInt(command[3])
+                        );
+                    }
+                    case "sk" -> seek(Integer.parseInt(command[1]), Integer.parseInt(command[2]));
+                    case "dr" -> dir();
+                    case "in" -> load(
+                            Integer.parseInt(command[1]),
+                            Integer.parseInt(command[2]),
+                            Integer.parseInt(command[3]),
+                            Integer.parseInt(command[4]),
+                            command[5]
+                    );
+                    case "sv" -> save(command[1]);
+                    default -> output.println("Wrong command");
                 }
+            } catch (NumberFormatException e) {
+                output.println("Invalid number: " + e.getMessage());
             } catch (FakeIOException e) {
-                System.out.println(e.getMessage());
+                output.println("error: " + e.getMessage());
+            } catch (IOException e) {
+                output.println("Actual I/O exception occured!");
+                throw e;
             }
         }
-    }
-
-    public static void startFileSystem() {
-        // Input stream
-        Scanner input;
-        try {
-            input = new Scanner(new File(INPUT_FILE));
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-            return;
-        }
-
-        // Output stream
-        PrintStream printStream = null;
-        try {
-            printStream = new PrintStream(new FileOutputStream(OUTPUT_FILE));
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        }
-        System.setOut(printStream);
-
-        // Do commands
-        doCommands(input);
-
-        // Close
-        input.close();
-    }
-
-    public static void main(String[] args) {
-        startFileSystem();
     }
 }

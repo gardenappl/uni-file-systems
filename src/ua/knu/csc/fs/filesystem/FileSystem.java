@@ -28,6 +28,7 @@ public final class FileSystem {
     private long bitmap;
 
     public static final int END_OF_FILE = -1;
+    public static final int MAX_FILE_SIZE = 4;
 
     public FileSystem(IOSystem ioSystem) throws FakeIOException {
         if (ioSystem.blockSize % FileDescriptor.BYTES != 0)
@@ -119,10 +120,11 @@ public final class FileSystem {
             if (file.position % ioSystem.blockSize == 0) {
                 if (file.dirtyBuffer) {
                     //If file was modified, write changes to disk
-                    ioSystem.writeBlock(file.fd.blocks[(file.position - 1) / ioSystem.blockSize], file.buffer);
+                    ioSystem.writeBlock(file.bufferBlockNum, file.buffer);
                     file.dirtyBuffer = false;
                 }
-                ioSystem.readBlock(file.fd.blocks[file.position / ioSystem.blockSize], file.buffer);
+                file.bufferBlockNum = file.fd.blocks[file.position / ioSystem.blockSize];
+                ioSystem.readBlock(file.bufferBlockNum, file.buffer);
             }
 
             int positionInBuffer = file.position % file.buffer.length;
@@ -168,7 +170,7 @@ public final class FileSystem {
             if (file.position % ioSystem.blockSize == 0) {
                 if (file.dirtyBuffer) {
                     //If file was modified, write changes to disk
-                    ioSystem.writeBlock(file.fd.blocks[(file.position - 1) / ioSystem.blockSize], file.buffer);
+                    ioSystem.writeBlock(file.bufferBlockNum, file.buffer);
                     file.dirtyBuffer = false;
                 }
 
@@ -185,7 +187,8 @@ public final class FileSystem {
                     file.fd.blocks[file.position / ioSystem.blockSize] = newBlock;
                     file.dirtyFd = true;
                 }
-                ioSystem.readBlock(file.fd.blocks[file.position / ioSystem.blockSize], file.buffer);
+                file.bufferBlockNum = file.fd.blocks[file.position / ioSystem.blockSize];
+                ioSystem.readBlock(file.bufferBlockNum, file.buffer);
             }
 
             int positionInBuffer = file.position % file.buffer.length;
@@ -227,20 +230,23 @@ public final class FileSystem {
     }
 
     private void seek(OpenFile file, int position) throws FakeIOException {
-        if (position < 0 || position >= file.fd.fileSize)
+        if (position < 0 || position > file.fd.fileSize)
             throw new FakeIOException("Can't seek to position " + position +
                     ", file size is " + file.fd.fileSize);
 
         //Swap buffers if the new position is in another block
+        //(and not on a block boundary, because in that case the read/write
+        // functions do the swapping themselves)
         int oldBlockNum = file.position / ioSystem.blockSize;
         int newBlockNum = position / ioSystem.blockSize;
 
-        if (oldBlockNum != newBlockNum) {
+        if (oldBlockNum != newBlockNum && position % ioSystem.blockSize != 0) {
             if (file.dirtyBuffer) {
                 file.dirtyBuffer = false;
                 ioSystem.writeBlock(file.fd.blocks[oldBlockNum], file.buffer);
             }
-            ioSystem.readBlock(file.fd.blocks[newBlockNum], file.buffer);
+            file.bufferBlockNum = file.fd.blocks[newBlockNum];
+            ioSystem.readBlock(file.bufferBlockNum, file.buffer);
         }
         file.position = position;
     }
@@ -372,20 +378,19 @@ public final class FileSystem {
 
     /**
      * Create new file in the file system
-     * @param fileName name of created file (max name length 4)
+     * @param fileName name of created file (max name length is {@link #MAX_FILE_SIZE})
      */
     public void create(String fileName) throws FakeIOException {
         // Checking length of file name
-        if (fileName.length() > 4) {
-            throw new FakeIOException("Max length of file name is 4");
+        if (fileName.length() > MAX_FILE_SIZE) {
+            throw new FakeIOException("Max length of file name is " + MAX_FILE_SIZE);
         }
 
         // Find a free file descriptor
         int freeFd = findFreeFd();
 
         // Find a free entry in the directory
-        byte[] fileNameBytes = fileName.getBytes(StandardCharsets.UTF_8);
-        directory.createEntry(fileNameBytes, freeFd);
+        directory.createEntry(fileName, freeFd);
 
         // Initialize fd
         byte[] buffer = new byte[ioSystem.blockSize];
@@ -403,14 +408,13 @@ public final class FileSystem {
      */
     public void destroy(String fileName) throws FakeIOException {
         // Checking length of file name
-        if (fileName.length() > 4) {
+        if (fileName.length() > MAX_FILE_SIZE) {
             throw new FakeIOException("Illegal file name");
         }
 
         // Find the file descriptor by searching the directory
         // Remove the directory entry
-        byte[] fileNameBytes = fileName.getBytes(StandardCharsets.UTF_8);
-        int entryIndex = directory.findEntry(fileNameBytes);
+        int entryIndex = directory.findEntry(fileName);
         int removeFdIndex = directory.entries.get(entryIndex).fdIndex;
 
         if (oftTable.isOpened(removeFdIndex)) {
@@ -454,6 +458,9 @@ public final class FileSystem {
      * @return string with main info about files
      */
     public String listFiles() {
+        //Flush cache before listing files
+        sync();
+
         StringBuilder sb = new StringBuilder();
 
         for (int i = 0; i < this.directory.entries.size(); i++) {
@@ -462,9 +469,11 @@ public final class FileSystem {
                 byte[] fdBlock = new byte[ioSystem.blockSize];
                 ioSystem.readBlock(getBlockWithFd(entry.fdIndex), fdBlock);
                 FileDescriptor currDescriptor = parseFdInBlock(entry.fdIndex, fdBlock);
-                sb.append("File name: ").append(Arrays.toString(entry.name))
-                        .append(". File length: ").append(currDescriptor.fileSize)
-                        .append(System.lineSeparator());
+                sb.append(entry.name);
+                sb.append(' ');
+                sb.append(currDescriptor.fileSize);
+                if (i != directory.entries.size() - 1)
+                    sb.append(", ");
             }
         }
 
@@ -477,12 +486,12 @@ public final class FileSystem {
      * @return index of opened file, usable for {@link #read(int, byte[], int)} and {@link #write(int, byte[], int)}
      */
     public int openFile(String fileName) throws FakeIOException {
-        if (fileName == null || fileName.length() > 4) {
-            throw new FakeIOException("Max length of file name is 4");
+        if (fileName == null || fileName.length() > MAX_FILE_SIZE) {
+            throw new FakeIOException("Illegal file name");
         }
-        
+
         for (DirectoryEntry entry : directory.entries) {
-            if (Arrays.equals(fileName.getBytes(), entry.name)) {
+            if (fileName.equals(entry.name)) {
                 int fdIndex = entry.fdIndex;
                 
                 byte[] fdBlock = new byte[ioSystem.blockSize];
@@ -512,8 +521,9 @@ public final class FileSystem {
     public String getFileName(int openFile) throws FakeIOException {
         int fdIndex = oftTable.getOpenFileSafe(openFile).fdIndex;
         for (DirectoryEntry entry : directory.entries) {
-            if (entry.fdIndex == fdIndex)
-                return new String(entry.name, StandardCharsets.UTF_8);
+            if (entry.fdIndex == fdIndex) {
+                return entry.name;
+            }
         }
         throw new FakeIOException("File is open but not not found in the root directory? Something is very wrong.");
     }

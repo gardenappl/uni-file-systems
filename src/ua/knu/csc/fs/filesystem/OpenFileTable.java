@@ -5,7 +5,7 @@ package ua.knu.csc.fs.filesystem;
  */
 final class OpenFileTable {
     private final OpenFile[] entryPool;
-    private static final int FD_UNUSED = -1;
+    static final int FD_UNUSED = -1;
 
     public final int size;
 
@@ -41,8 +41,7 @@ final class OpenFileTable {
     }
 
     public void deallocate(OpenFile entry) {
-        entry.fdIndex = FD_UNUSED;
-        entry.buffer = null;
+        entry.reset();
     }
 
     /**

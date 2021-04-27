@@ -8,10 +8,8 @@ public final class IOSystem {
     private final byte[][] ldisk;
     public final int blockSize;
     public final int blockCount;
-
-    public static final String DEFAULT_SAVE_FILE = "virtualdisk.bin";
     
-    public IOSystem(int blockCount, int blockSize, String saveFile) {
+    public IOSystem(int blockCount, int blockSize) {
         ldisk = new byte[blockCount][];
         for (int i = 0; i < blockCount; i++)
             ldisk[i] = new byte[blockSize];
