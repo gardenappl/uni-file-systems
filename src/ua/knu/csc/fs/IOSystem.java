@@ -22,6 +22,10 @@ public final class IOSystem {
         this.saveFile = saveFile;
     }
 
+    public String getSaveFile() {
+        return saveFile;
+    }
+
     /**
      * Reads contents of logical block at address i,
      * will read {@link #blockSize} bytes into supplied array.

@@ -89,6 +89,10 @@ public final class FileSystem {
         }
     }
 
+    public String getFileName() {
+        return ioSystem.getSaveFile();
+    }
+
     /**
      * Read contents of file into buffer
      *
@@ -443,7 +447,7 @@ public final class FileSystem {
 
         for (int i = 0; i < this.directory.entries.size(); i++) {
             DirectoryEntry entry = this.directory.entries.get(i);
-            if (entry.fdIndex != Directory.UNUSED_ENTRY) {
+            if (!Directory.isUnused(entry)) {
                 byte[] fdBlock = new byte[ioSystem.blockSize];
                 ioSystem.readBlock(getBlockWithFd(entry.fdIndex), fdBlock);
                 FileDescriptor currDescriptor = parseFdInBlock(entry.fdIndex, fdBlock);
