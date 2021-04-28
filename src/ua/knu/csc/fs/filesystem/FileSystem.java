@@ -77,12 +77,12 @@ public final class FileSystem {
                     FileDescriptor.BLOCK_UNUSED,
                     FileDescriptor.BLOCK_UNUSED,
                     FileDescriptor.BLOCK_UNUSED
-            }), 0);
+            }));
             root = oftTable.getOpenFile(rootIndex);
 
             this.directory = new Directory();
         } else {
-            int rootIndex = oftTable.allocate(0, fileDescriptor, 0);
+            int rootIndex = oftTable.allocate(0, fileDescriptor);
             root = oftTable.getOpenFile(rootIndex);
 
             // Read directory data from file system
@@ -117,7 +117,7 @@ public final class FileSystem {
                 break;
 
             //Need to swap buffers
-            if (file.position % ioSystem.blockSize == 0) {
+            if (file.bufferBlockNum != file.fd.blocks[file.position / ioSystem.blockSize]) {
                 if (file.dirtyBuffer) {
                     //If file was modified, write changes to disk
                     ioSystem.writeBlock(file.bufferBlockNum, file.buffer);
@@ -167,7 +167,7 @@ public final class FileSystem {
         int bytesWritten = 0;
         while (bytesWritten < count) {
             //Need to swap buffers
-            if (file.position % ioSystem.blockSize == 0) {
+            if (file.bufferBlockNum != file.fd.blocks[file.position / ioSystem.blockSize]) {
                 if (file.dirtyBuffer) {
                     //If file was modified, write changes to disk
                     ioSystem.writeBlock(file.bufferBlockNum, file.buffer);
@@ -234,20 +234,7 @@ public final class FileSystem {
             throw new FakeIOException("Can't seek to position " + position +
                     ", file size is " + file.fd.fileSize);
 
-        //Swap buffers if the new position is in another block
-        //(and not on a block boundary, because in that case the read/write
-        // functions do the swapping themselves)
-        int oldBlockNum = file.position / ioSystem.blockSize;
-        int newBlockNum = position / ioSystem.blockSize;
-
-        if (oldBlockNum != newBlockNum && position % ioSystem.blockSize != 0) {
-            if (file.dirtyBuffer) {
-                file.dirtyBuffer = false;
-                ioSystem.writeBlock(file.fd.blocks[oldBlockNum], file.buffer);
-            }
-            file.bufferBlockNum = file.fd.blocks[newBlockNum];
-            ioSystem.readBlock(file.bufferBlockNum, file.buffer);
-        }
+        //No need to swap buffers in seek function, read/write functions do this automatically
         file.position = position;
     }
 
@@ -332,7 +319,7 @@ public final class FileSystem {
      */
     private void sync(OpenFile file) {
         if (file.dirtyBuffer) {
-            ioSystem.writeBlock(file.fd.blocks[file.position / ioSystem.blockSize], file.buffer);
+            ioSystem.writeBlock(file.bufferBlockNum, file.buffer);
             file.dirtyBuffer = false;
         }
         if (file.dirtyFd) {
@@ -498,7 +485,7 @@ public final class FileSystem {
                 ioSystem.readBlock(getBlockWithFd(fdIndex), fdBlock);
                 FileDescriptor fd = parseFdInBlock(fdIndex, fdBlock);
                 
-                return oftTable.allocate(fdIndex, fd, 0);
+                return oftTable.allocate(fdIndex, fd);
             }
         }
 

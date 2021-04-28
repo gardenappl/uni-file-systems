@@ -1,5 +1,7 @@
 package ua.knu.csc.fs.filesystem;
 
+import java.io.File;
+
 final class OpenFile {
     /**
      * Current buffer for read/write operations, corresponds to one data block.
@@ -40,19 +42,20 @@ final class OpenFile {
 
     /**
      * Do not use this directly!
-     * Instead, use {@link OpenFileTable#allocate(int, FileDescriptor, int)} and {@link OpenFileTable#deallocate(OpenFile)}
+     * Instead, use {@link OpenFileTable#allocate(int, FileDescriptor)} and {@link OpenFileTable#deallocate(OpenFile)}
      */
-    OpenFile(int bufferSize, int fdIndex, int pos) {
+    OpenFile(int bufferSize, int fdIndex) {
         this.bufferSize = bufferSize;
-        reset(fdIndex, null, pos);
+        reset(fdIndex, null);
     }
     
-    void reset(int fdIndex, FileDescriptor fd, int pos) {
+    void reset(int fdIndex, FileDescriptor fd) {
         if (buffer == null)
             buffer = new byte[bufferSize];
         this.fdIndex = fdIndex;
         this.fd = fd;
-        this.position = pos;
+        this.position = 0;
+        this.bufferBlockNum = 0;
         this.dirtyBuffer = false;
     }
 
@@ -61,6 +64,7 @@ final class OpenFile {
         this.fdIndex = OpenFileTable.FD_UNUSED;
         this.fd = null;
         this.position = 0;
+        this.bufferBlockNum = 0;
         this.dirtyBuffer = false;
     }
 }

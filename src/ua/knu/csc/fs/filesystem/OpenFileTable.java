@@ -13,14 +13,14 @@ final class OpenFileTable {
         entryPool = new OpenFile[entries];
         size = entries;
         for (int i = 0; i < entryPool.length; i++)
-            entryPool[i] = new OpenFile(bufferSize, FD_UNUSED, 0);
+            entryPool[i] = new OpenFile(bufferSize, FD_UNUSED);
     }
 
     /**
      * @throws FakeIOException if file is already open
      * @return index of opened file, usable for {@link #getOpenFile(int)}
      */
-    public int allocate(int fdIndex, FileDescriptor fd, int position) throws FakeIOException {
+    public int allocate(int fdIndex, FileDescriptor fd) throws FakeIOException {
         OpenFile freeEntry = null;
         int freeEntryIndex = -1;
         for (int i = 0; i < entryPool.length; i++) {
@@ -33,7 +33,7 @@ final class OpenFileTable {
         }
 
         if (freeEntry != null) {
-            freeEntry.reset(fdIndex, fd, position);
+            freeEntry.reset(fdIndex, fd);
             return freeEntryIndex;
         } else {
             throw new RuntimeException("Not enough space for new OFT entry");
