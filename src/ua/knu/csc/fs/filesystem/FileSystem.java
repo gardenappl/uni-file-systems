@@ -4,8 +4,6 @@ import ua.knu.csc.fs.IOSystem;
 import ua.knu.csc.fs.MathUtils;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 
 public final class FileSystem {
     private final IOSystem ioSystem;
@@ -28,7 +26,10 @@ public final class FileSystem {
     private long bitmap;
 
     public static final int END_OF_FILE = -1;
-    public static final int MAX_FILE_SIZE = 4;
+    public static final int MAX_FILE_NAME_SIZE = 10;
+
+    //Limited by bitmap size
+    private static final int MAX_DATA_BLOCKS = 64;
 
     public FileSystem(IOSystem ioSystem) throws FakeIOException {
         if (ioSystem.blockSize % FileDescriptor.BYTES != 0)
@@ -45,16 +46,19 @@ public final class FileSystem {
 
         // If x is the amount of FileDescriptor blocks:
         // (max. amount of data blocks described by FDs == actual amount of data blocks)
-        // x * numOfFdInBlock * 2 == ioSystem.blockCount - x - 1
+        // x * numOfFdInBlock * 2 == min(ioSystem.blockCount - x - 1, MAX_DATA_BLOCKS)
 
         final int AVG_FILE_BLOCKS = 2;
         // (Add +1 for bitmap block)
-        this.reservedBlocks = 1 + (ioSystem.blockCount - 1) / (numOfFdInBlock * AVG_FILE_BLOCKS + 1);
+        this.reservedBlocks = Math.min(
+                1 + (ioSystem.blockCount - 1) / (numOfFdInBlock * AVG_FILE_BLOCKS + 1),
+                1 + MAX_DATA_BLOCKS / (numOfFdInBlock * AVG_FILE_BLOCKS)
+        );
 
         System.err.printf(
                 "Created FS with 1 bitmap block, %d FD blocks, %d data blocks\n",
                 reservedBlocks - 1,
-                ioSystem.blockCount - reservedBlocks
+                Math.min(ioSystem.blockCount - reservedBlocks, MAX_DATA_BLOCKS)
         );
 
         // Create init fd
@@ -365,12 +369,12 @@ public final class FileSystem {
 
     /**
      * Create new file in the file system
-     * @param fileName name of created file (max name length is {@link #MAX_FILE_SIZE})
+     * @param fileName name of created file (max name length is {@link #MAX_FILE_NAME_SIZE})
      */
     public void create(String fileName) throws FakeIOException {
         // Checking length of file name
-        if (fileName.length() > MAX_FILE_SIZE) {
-            throw new FakeIOException("Max length of file name is " + MAX_FILE_SIZE);
+        if (fileName.length() > MAX_FILE_NAME_SIZE) {
+            throw new FakeIOException("Max length of file name is " + MAX_FILE_NAME_SIZE);
         }
 
         // Find a free file descriptor
@@ -395,7 +399,7 @@ public final class FileSystem {
      */
     public void destroy(String fileName) throws FakeIOException {
         // Checking length of file name
-        if (fileName.length() > MAX_FILE_SIZE) {
+        if (fileName.length() > MAX_FILE_NAME_SIZE) {
             throw new FakeIOException("Illegal file name");
         }
 
@@ -473,7 +477,7 @@ public final class FileSystem {
      * @return index of opened file, usable for {@link #read(int, byte[], int)} and {@link #write(int, byte[], int)}
      */
     public int openFile(String fileName) throws FakeIOException {
-        if (fileName == null || fileName.length() > MAX_FILE_SIZE) {
+        if (fileName == null || fileName.length() > MAX_FILE_NAME_SIZE) {
             throw new FakeIOException("Illegal file name");
         }
 

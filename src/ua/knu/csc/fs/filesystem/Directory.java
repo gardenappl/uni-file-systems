@@ -3,7 +3,6 @@ package ua.knu.csc.fs.filesystem;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 
 class DirectoryEntry {
     String name;
@@ -28,6 +27,7 @@ class DirectoryEntry {
 
 public class Directory {
     static final int UNUSED_ENTRY = -1;
+    private static final int ENTRY_SIZE = FileSystem.MAX_FILE_NAME_SIZE + Integer.BYTES;
     ArrayList<DirectoryEntry> entries;
 
     Directory() {
@@ -35,16 +35,16 @@ public class Directory {
     }
 
     Directory(byte[] buffer) throws FakeIOException {
-        if (buffer.length % 8 != 0) {
+        if (buffer.length % ENTRY_SIZE != 0) {
             throw new FakeIOException("Directory data is corrupted");
         }
-        int size = buffer.length / 8;
+        int size = buffer.length / ENTRY_SIZE;
         this.entries = new ArrayList<>(size);
 
         // Reading directory from byte array
         ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
         for (int i = 0; i < size; i++) {
-            byte[] name = new byte[4];
+            byte[] name = new byte[FileSystem.MAX_FILE_NAME_SIZE];
             byteBuffer.get(name);
             this.entries.add(new DirectoryEntry(
                     name,
@@ -66,13 +66,13 @@ public class Directory {
      * @return byte array that represents the directory
      */
     public byte[] toByteArray() {
-        byte[] buffer = new byte[entries.size() * 8];
+        byte[] buffer = new byte[entries.size() * ENTRY_SIZE];
         ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
 
         for (DirectoryEntry entry : entries) {
             byteBuffer.put(entry.name.getBytes(StandardCharsets.UTF_8));
-            if (entry.name.length() < FileSystem.MAX_FILE_SIZE)
-                byteBuffer.put(new byte[FileSystem.MAX_FILE_SIZE - entry.name.length()]);
+            if (entry.name.length() < FileSystem.MAX_FILE_NAME_SIZE)
+                byteBuffer.put(new byte[FileSystem.MAX_FILE_NAME_SIZE - entry.name.length()]);
             byteBuffer.putInt(entry.fdIndex);
         }
         return byteBuffer.array();
