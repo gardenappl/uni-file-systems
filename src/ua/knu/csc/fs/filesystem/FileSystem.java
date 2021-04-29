@@ -11,7 +11,7 @@ public final class FileSystem {
     private final IOSystem ioSystem;
 
     //size of Opened File Table
-    private static final int OFT_SIZE = 25;
+    private static final int OFT_SIZE = 35;
     private final OpenFileTable oftTable;
     private final OpenFile root;
     private final Directory directory;
@@ -117,14 +117,14 @@ public final class FileSystem {
                 break;
 
             //Need to swap buffers
-            if (file.bufferBlockNum != file.fd.blocks[file.position / ioSystem.blockSize]) {
+            if (file.bufferBlockNum != file.position / ioSystem.blockSize) {
                 if (file.dirtyBuffer) {
                     //If file was modified, write changes to disk
-                    ioSystem.writeBlock(file.bufferBlockNum, file.buffer);
+                    ioSystem.writeBlock(file.fd.blocks[file.bufferBlockNum], file.buffer);
                     file.dirtyBuffer = false;
                 }
-                file.bufferBlockNum = file.fd.blocks[file.position / ioSystem.blockSize];
-                ioSystem.readBlock(file.bufferBlockNum, file.buffer);
+                file.bufferBlockNum = file.position / ioSystem.blockSize;
+                ioSystem.readBlock(file.fd.blocks[file.bufferBlockNum], file.buffer);
             }
 
             int positionInBuffer = file.position % file.buffer.length;
@@ -167,10 +167,10 @@ public final class FileSystem {
         int bytesWritten = 0;
         while (bytesWritten < count) {
             //Need to swap buffers
-            if (file.bufferBlockNum != file.fd.blocks[file.position / ioSystem.blockSize]) {
+            if (file.bufferBlockNum != file.position / ioSystem.blockSize) {
                 if (file.dirtyBuffer) {
                     //If file was modified, write changes to disk
-                    ioSystem.writeBlock(file.bufferBlockNum, file.buffer);
+                    ioSystem.writeBlock(file.fd.blocks[file.bufferBlockNum], file.buffer);
                     file.dirtyBuffer = false;
                 }
 
@@ -187,8 +187,8 @@ public final class FileSystem {
                     file.fd.blocks[file.position / ioSystem.blockSize] = newBlock;
                     file.dirtyFd = true;
                 }
-                file.bufferBlockNum = file.fd.blocks[file.position / ioSystem.blockSize];
-                ioSystem.readBlock(file.bufferBlockNum, file.buffer);
+                file.bufferBlockNum = file.position / ioSystem.blockSize;
+                ioSystem.readBlock(file.fd.blocks[file.bufferBlockNum], file.buffer);
             }
 
             int positionInBuffer = file.position % file.buffer.length;
@@ -293,8 +293,8 @@ public final class FileSystem {
      */
     private int allocateDataBlock(long[] bitmap) throws FakeIOException {
         int freeBlock = MathUtils.findZeroByte(bitmap[0]);
-        if (freeBlock < 0 || reservedBlocks + freeBlock > ioSystem.blockCount)
-            throw new FakeIOException("No room for new data block!");
+        if (freeBlock < 0 || reservedBlocks + freeBlock >= ioSystem.blockCount)
+            throw new FakeIOException("Out of space");
         bitmap[0] = MathUtils.setOneByte(bitmap[0], freeBlock);
         return reservedBlocks + freeBlock;
     }
@@ -319,7 +319,7 @@ public final class FileSystem {
      */
     private void sync(OpenFile file) {
         if (file.dirtyBuffer) {
-            ioSystem.writeBlock(file.bufferBlockNum, file.buffer);
+            ioSystem.writeBlock(file.fd.blocks[file.bufferBlockNum], file.buffer);
             file.dirtyBuffer = false;
         }
         if (file.dirtyFd) {

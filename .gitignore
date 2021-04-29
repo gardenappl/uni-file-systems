@@ -1,4 +1,3 @@
 *.bin
 out/
-input.txt
-output.txt
+*.txt
