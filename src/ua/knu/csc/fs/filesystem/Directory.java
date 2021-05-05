@@ -129,8 +129,8 @@ public class Directory {
         // Looking for free entry
         int entryIndex = -1;
         for (int i = 0; i < entries.size(); i++) {
-            if (entryIndex == -1) {
-                if (isUnused(entries.get(i))) {
+            if (isUnused(entries.get(i))) {
+                if (entryIndex == -1) {
                     entryIndex = i;
                 }
             } else if (entries.get(i).name.equals(name)) {
