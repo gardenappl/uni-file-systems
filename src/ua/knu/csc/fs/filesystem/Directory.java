@@ -27,18 +27,28 @@ class DirectoryEntry {
 
 public class Directory {
     static final int UNUSED_ENTRY = -1;
-    private static final int ENTRY_SIZE = FileSystem.MAX_FILE_NAME_SIZE + Integer.BYTES;
+    static final int ENTRY_SIZE = FileSystem.MAX_FILE_NAME_SIZE + Integer.BYTES;
     ArrayList<DirectoryEntry> entries;
+    int unusedEntriesCount;
+    int maxEntryNumber;
+    int changedEntryIndex = -1;
 
-    Directory() {
+    Directory(int maxFileSize) {
         this.entries = new ArrayList<>();
+        this.unusedEntriesCount = 0;
+        this.maxEntryNumber = maxFileSize / ENTRY_SIZE;
     }
 
-    Directory(byte[] buffer) throws FakeIOException {
+    Directory(byte[] buffer, int maxFileSize) throws FakeIOException {
         if (buffer.length % ENTRY_SIZE != 0) {
             throw new FakeIOException("Directory data is corrupted");
         }
+        this.maxEntryNumber = maxFileSize / ENTRY_SIZE;
+
         int size = buffer.length / ENTRY_SIZE;
+        if (size > maxEntryNumber) {
+            throw new FakeIOException("Reached limit of entries number");
+        }
         this.entries = new ArrayList<>(size);
 
         // Reading directory from byte array
@@ -46,10 +56,16 @@ public class Directory {
         for (int i = 0; i < size; i++) {
             byte[] name = new byte[FileSystem.MAX_FILE_NAME_SIZE];
             byteBuffer.get(name);
+            int fdIndex = byteBuffer.getInt();
             this.entries.add(new DirectoryEntry(
                     name,
-                    byteBuffer.getInt()
+                    fdIndex
             ));
+
+            // Checking for unused entries
+            if (fdIndex == UNUSED_ENTRY) {
+                unusedEntriesCount += 1;
+            }
         }
     }
 
@@ -59,6 +75,13 @@ public class Directory {
      */
     public static boolean isUnused(DirectoryEntry entry) {
         return entry.fdIndex == Directory.UNUSED_ENTRY;
+    }
+
+    /**
+     * @return true if the directory has unused entry, else - false
+     */
+    public boolean hasUnusedEntries() {
+        return unusedEntriesCount > 0;
     }
 
     /**
@@ -78,6 +101,19 @@ public class Directory {
         return byteBuffer.array();
     }
 
+    public byte[] entryToByteArray(int entryIndex) {
+        byte[] buffer = new byte[ENTRY_SIZE];
+        ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+
+        DirectoryEntry entry = entries.get(entryIndex);
+        byteBuffer.put(entry.name.getBytes(StandardCharsets.UTF_8));
+        if (entry.name.length() < FileSystem.MAX_FILE_NAME_SIZE)
+            byteBuffer.put(new byte[FileSystem.MAX_FILE_NAME_SIZE - entry.name.length()]);
+        byteBuffer.putInt(entry.fdIndex);
+
+        return byteBuffer.array();
+    }
+
     /**
      * Create new entry in the directory
      * @param name file name
@@ -85,6 +121,11 @@ public class Directory {
      * @throws FakeIOException file already exists
      */
     public void createEntry(String name, int fdIndex) throws FakeIOException {
+        // Check entries limit
+        if (!hasUnusedEntries() && entries.size() >= maxEntryNumber) {
+            throw new FakeIOException("Reached limit of entries number");
+        }
+
         // Looking for free entry
         int entryIndex = -1;
         for (int i = 0; i < entries.size(); i++) {
@@ -100,9 +141,12 @@ public class Directory {
         // Adding new entry
         if (entryIndex == -1) {
             entries.add(new DirectoryEntry(name, fdIndex));
+            changedEntryIndex = entries.size() - 1;
         } else {
             entries.get(entryIndex).name = name;
             entries.get(entryIndex).fdIndex = fdIndex;
+            changedEntryIndex = entryIndex;
+            unusedEntriesCount -= 1;
         }
     }
 
@@ -127,7 +171,10 @@ public class Directory {
      * to {@link #UNUSED_ENTRY}
      * @param entryIndex index of the entry in the directory
      */
-    public void removeEntry(int entryIndex) {
+    public void removeEntry(int entryIndex)
+    {
         entries.get(entryIndex).fdIndex = UNUSED_ENTRY;
+        changedEntryIndex = entryIndex;
+        unusedEntriesCount += 1;
     }
 }

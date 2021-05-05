@@ -5,7 +5,6 @@ final class FileDescriptor {
      * Size of a file descriptor entry, in bytes:
      * 4 bytes = 1 int, for file size
      * 12 bytes = 3 ints, for pointers to 3 blocks
-     * TODO: last int could point to another file descriptor, so we can have more than 3 blocks?
      */
     static final int BYTES = 16;
 

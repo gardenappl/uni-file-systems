@@ -1,7 +1,5 @@
 package ua.knu.csc.fs.filesystem;
 
-import java.io.File;
-
 final class OpenFile {
     /**
      * Current buffer for read/write operations, corresponds to one data block.
