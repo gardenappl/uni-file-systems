@@ -10,6 +10,7 @@ public final class FileSystem {
 
     //size of Opened File Table
     private static final int OFT_SIZE = 35;
+    private static int maxFileSize;
     private final OpenFileTable oftTable;
     private final OpenFile root;
     private final Directory directory;
@@ -68,6 +69,8 @@ public final class FileSystem {
                 FileDescriptor.BLOCK_UNUSED
         });
 
+        maxFileSize = ioSystem.blockSize * FileDescriptor.BLOCK_COUNT;
+
         // Make sure that root file descriptor is valid
         byte[] buffer = new byte[ioSystem.blockSize];
         ioSystem.readBlock(getBlockWithFd(0), buffer);
@@ -84,7 +87,7 @@ public final class FileSystem {
             }));
             root = oftTable.getOpenFile(rootIndex);
 
-            this.directory = new Directory();
+            this.directory = new Directory(maxFileSize);
         } else {
             int rootIndex = oftTable.allocate(0, fileDescriptor);
             root = oftTable.getOpenFile(rootIndex);
@@ -92,7 +95,7 @@ public final class FileSystem {
             // Read directory data from file system
             byte[] dirBuffer = new byte[fileDescriptor.fileSize];
             read(this.root, dirBuffer, fileDescriptor.fileSize);
-            this.directory = new Directory(dirBuffer);
+            this.directory = new Directory(dirBuffer, maxFileSize);
         }
     }
 

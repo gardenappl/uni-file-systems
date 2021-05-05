@@ -29,16 +29,25 @@ public class Directory {
     static final int UNUSED_ENTRY = -1;
     private static final int ENTRY_SIZE = FileSystem.MAX_FILE_NAME_SIZE + Integer.BYTES;
     ArrayList<DirectoryEntry> entries;
+    int unusedEntriesCount;
+    int maxEntryNumber;
 
-    Directory() {
+    Directory(int maxFileSize) {
         this.entries = new ArrayList<>();
+        this.unusedEntriesCount = 0;
+        this.maxEntryNumber = maxFileSize / ENTRY_SIZE;
     }
 
-    Directory(byte[] buffer) throws FakeIOException {
+    Directory(byte[] buffer, int maxFileSize) throws FakeIOException {
         if (buffer.length % ENTRY_SIZE != 0) {
             throw new FakeIOException("Directory data is corrupted");
         }
+        this.maxEntryNumber = maxFileSize / ENTRY_SIZE;
+
         int size = buffer.length / ENTRY_SIZE;
+        if (size > maxEntryNumber) {
+            throw new FakeIOException("Reached limit of entries number");
+        }
         this.entries = new ArrayList<>(size);
 
         // Reading directory from byte array
@@ -46,10 +55,16 @@ public class Directory {
         for (int i = 0; i < size; i++) {
             byte[] name = new byte[FileSystem.MAX_FILE_NAME_SIZE];
             byteBuffer.get(name);
+            int fdIndex = byteBuffer.getInt();
             this.entries.add(new DirectoryEntry(
                     name,
-                    byteBuffer.getInt()
+                    fdIndex
             ));
+
+            // Checking for unused entries
+            if (fdIndex == UNUSED_ENTRY) {
+                unusedEntriesCount += 1;
+            }
         }
     }
 
@@ -59,6 +74,10 @@ public class Directory {
      */
     public static boolean isUnused(DirectoryEntry entry) {
         return entry.fdIndex == Directory.UNUSED_ENTRY;
+    }
+
+    public boolean hasUnusedEntries() {
+        return unusedEntriesCount > 0;
     }
 
     /**
@@ -85,11 +104,16 @@ public class Directory {
      * @throws FakeIOException file already exists
      */
     public void createEntry(String name, int fdIndex) throws FakeIOException {
+        // Check entries limit
+        if (!hasUnusedEntries() && entries.size() >= maxEntryNumber) {
+            throw new FakeIOException("Reached limit of entries number");
+        }
+
         // Looking for free entry
         int entryIndex = -1;
         for (int i = 0; i < entries.size(); i++) {
-            if (isUnused(entries.get(i))) {
-                if (entryIndex == -1) {
+            if (entryIndex == -1) {
+                if (isUnused(entries.get(i))) {
                     entryIndex = i;
                 }
             } else if (entries.get(i).name.equals(name)) {
@@ -103,6 +127,7 @@ public class Directory {
         } else {
             entries.get(entryIndex).name = name;
             entries.get(entryIndex).fdIndex = fdIndex;
+            unusedEntriesCount -= 1;
         }
     }
 
@@ -127,7 +152,9 @@ public class Directory {
      * to {@link #UNUSED_ENTRY}
      * @param entryIndex index of the entry in the directory
      */
-    public void removeEntry(int entryIndex) {
+    public void removeEntry(int entryIndex)
+    {
         entries.get(entryIndex).fdIndex = UNUSED_ENTRY;
+        unusedEntriesCount += 1;
     }
 }
