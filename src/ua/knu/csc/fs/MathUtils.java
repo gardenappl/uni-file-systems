@@ -17,8 +17,8 @@ public final class MathUtils {
         for (int i = BITMASKS.length - 2; i >= 0; i--) {
             BITMASKS[i] = BITMASKS[i + 1] << 1;
         }
-        for (long bitmask : BITMASKS)
-            System.out.println(bitmask);
+//        for (long bitmask : BITMASKS)
+//            System.out.println(bitmask);
     }
     
     private MathUtils() {}

@@ -1,82 +1,26 @@
 package ua.knu.csc.fs;
 
-import ua.knu.csc.fs.filesystem.FakeIOException;
-import ua.knu.csc.fs.filesystem.FileSystem;
-import ua.knu.csc.fs.filesystem.OpenFile;
-
+import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Scanner;
 
 public class Main {
+    public static void main(String[] args) throws IOException {
+        if (args.length != 0 && args.length != 2)
+            System.err.println("Should have either no arguments or 2 arguments");
 
-    public static void main(String[] args) throws FakeIOException {
-        IOSystem ioTest = new IOSystem(64, 64, "io_test.bin");
-
-        byte[] buffer = new byte[ioTest.blockSize];
-
-        byte[] stringBytes = "Hello World".getBytes(StandardCharsets.UTF_8);
-        System.arraycopy(stringBytes, 0, buffer, 0, stringBytes.length);
-        ioTest.writeBlock(0, buffer);
-        
-        try {
-            ioTest.saveToFile();
-            ioTest.readFromFile();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return;
+        if (args.length == 0) {
+            new PresentationShell(System.out, new Scanner(System.in)).doCommands();
+        } else {
+            try (Scanner scanner = new Scanner(new File(args[0]))) {
+                try (PrintStream printStream = new PrintStream(args[1])) {
+                    new PresentationShell(printStream, scanner).doCommands();
+                }
+            }
         }
-
-        buffer = new byte[ioTest.blockSize];
-        ioTest.readBlock(0, buffer);
-        System.out.println(new String(buffer, StandardCharsets.UTF_8));
-
-
-        /////////////
-
-
-        //4 cylinders, 2 surfaces, 8 sectors/track,
-        //according to presentation.pdf
-        //4 * 2 * 8 = 64 bytes/sector
-        IOSystem vdd = new IOSystem(64, 64, IOSystem.DEFAULT_SAVE_FILE);
-        FileSystem fs = new FileSystem(vdd);
-
-//        OpenFile root = fs.getRootDirectory();
-//        stringBytes = "Hello, world! Hahahahahaha, yes this is a very very long string, longer than 64 bytes!"
-//                .getBytes(StandardCharsets.UTF_8);
-        
-        try {
-//            //Write, reset position, and read
-//            fs.write(root, stringBytes, stringBytes.length);
-//
-//            fs.seek(root, 0);
-//
-//            byte[] bytes = new byte[stringBytes.length];
-//            fs.read(root, bytes, bytes.length);
-//            System.out.println(new String(bytes, StandardCharsets.UTF_8));
-//
-//            //Write to file and re-create FS
-//
-//            fs.sync();
-//            vdd.saveToFile();
-//
-//            vdd = new IOSystem(64, 64, IOSystem.DEFAULT_SAVE_FILE);
-//            vdd.readFromFile();
-//
-//            fs = new FileSystem(vdd, 25);
-//
-            fs.create("foo");
-            fs.create("bar");
-            fs.destroy("foo");
-        } catch (IOException e) {
-            e.printStackTrace();
-            return;
-        }
-
-        OpenFile root = fs.getRootDirectory();
-
-        byte[] bytes = new byte[vdd.blockSize];
-        fs.seek(root, 0);
-        fs.read(root, bytes, bytes.length);
-        System.out.println(new String(bytes, StandardCharsets.UTF_8));
     }
 }
