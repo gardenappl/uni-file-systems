@@ -27,10 +27,11 @@ class DirectoryEntry {
 
 public class Directory {
     static final int UNUSED_ENTRY = -1;
-    private static final int ENTRY_SIZE = FileSystem.MAX_FILE_NAME_SIZE + Integer.BYTES;
+    static final int ENTRY_SIZE = FileSystem.MAX_FILE_NAME_SIZE + Integer.BYTES;
     ArrayList<DirectoryEntry> entries;
     int unusedEntriesCount;
     int maxEntryNumber;
+    int changedEntryIndex = -1;
 
     Directory(int maxFileSize) {
         this.entries = new ArrayList<>();
@@ -76,6 +77,9 @@ public class Directory {
         return entry.fdIndex == Directory.UNUSED_ENTRY;
     }
 
+    /**
+     * @return true if the directory has unused entry, else - false
+     */
     public boolean hasUnusedEntries() {
         return unusedEntriesCount > 0;
     }
@@ -94,6 +98,19 @@ public class Directory {
                 byteBuffer.put(new byte[FileSystem.MAX_FILE_NAME_SIZE - entry.name.length()]);
             byteBuffer.putInt(entry.fdIndex);
         }
+        return byteBuffer.array();
+    }
+
+    public byte[] entryToByteArray(int entryIndex) {
+        byte[] buffer = new byte[ENTRY_SIZE];
+        ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+
+        DirectoryEntry entry = entries.get(entryIndex);
+        byteBuffer.put(entry.name.getBytes(StandardCharsets.UTF_8));
+        if (entry.name.length() < FileSystem.MAX_FILE_NAME_SIZE)
+            byteBuffer.put(new byte[FileSystem.MAX_FILE_NAME_SIZE - entry.name.length()]);
+        byteBuffer.putInt(entry.fdIndex);
+
         return byteBuffer.array();
     }
 
@@ -124,9 +141,11 @@ public class Directory {
         // Adding new entry
         if (entryIndex == -1) {
             entries.add(new DirectoryEntry(name, fdIndex));
+            changedEntryIndex = entries.size() - 1;
         } else {
             entries.get(entryIndex).name = name;
             entries.get(entryIndex).fdIndex = fdIndex;
+            changedEntryIndex = entryIndex;
             unusedEntriesCount -= 1;
         }
     }
@@ -155,6 +174,7 @@ public class Directory {
     public void removeEntry(int entryIndex)
     {
         entries.get(entryIndex).fdIndex = UNUSED_ENTRY;
+        changedEntryIndex = entryIndex;
         unusedEntriesCount += 1;
     }
 }

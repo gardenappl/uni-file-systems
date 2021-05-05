@@ -361,13 +361,14 @@ public final class FileSystem {
     }
 
     /**
-     * Save the directory to the file system
+     * Save changed entry of the directory to the file system
      * @throws FakeIOException the write function causes an error
      */
     private void saveDirectory() throws FakeIOException {
-        byte[] bufferDirectory = directory.toByteArray();
-        seek(this.root, 0);
-        write(this.root, bufferDirectory, bufferDirectory.length);
+        int entryIndex = directory.changedEntryIndex;
+        byte[] bufferEntry = directory.entryToByteArray(entryIndex);
+        seek(this.root, entryIndex * Directory.ENTRY_SIZE);
+        write(this.root, bufferEntry, bufferEntry.length);
     }
 
     /**
