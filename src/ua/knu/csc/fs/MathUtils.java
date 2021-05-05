@@ -1,10 +1,5 @@
 package ua.knu.csc.fs;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-
 public final class MathUtils {
     //binary:
     // BITMASKS[0] = 10000000000000...
@@ -17,8 +12,6 @@ public final class MathUtils {
         for (int i = BITMASKS.length - 2; i >= 0; i--) {
             BITMASKS[i] = BITMASKS[i + 1] << 1;
         }
-//        for (long bitmask : BITMASKS)
-//            System.out.println(bitmask);
     }
     
     private MathUtils() {}
