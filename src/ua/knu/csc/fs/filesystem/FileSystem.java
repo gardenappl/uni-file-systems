@@ -9,7 +9,7 @@ public final class FileSystem {
     private final IOSystem ioSystem;
 
     //size of Opened File Table
-    private static final int OFT_SIZE = 35;
+    private static final int OFT_SIZE = 3;
     private static int maxFileSize;
     private final OpenFileTable oftTable;
     private final OpenFile root;
@@ -27,7 +27,7 @@ public final class FileSystem {
     private long bitmap;
 
     public static final int END_OF_FILE = -1;
-    public static final int MAX_FILE_NAME_SIZE = 10;
+    public static final int MAX_FILE_NAME_SIZE = 4;
 
     //Limited by bitmap size
     private static final int MAX_DATA_BLOCKS = 64;
@@ -47,12 +47,12 @@ public final class FileSystem {
 
         // If x is the amount of FileDescriptor blocks:
         // (max. amount of data blocks described by FDs == actual amount of data blocks)
-        // x * numOfFdInBlock * 2 == min(ioSystem.blockCount - x - 1, MAX_DATA_BLOCKS)
+        // x * numOfFdInBlock * 2 == ioSystem.blockCount - x - 1
 
         final int AVG_FILE_BLOCKS = 2;
         // (Add +1 for bitmap block)
         this.reservedBlocks = Math.min(
-                1 + (ioSystem.blockCount - 1) / (numOfFdInBlock * AVG_FILE_BLOCKS + 1),
+                1 + MathUtils.divideCeil(ioSystem.blockCount - 1, numOfFdInBlock * AVG_FILE_BLOCKS + 1),
                 1 + MAX_DATA_BLOCKS / (numOfFdInBlock * AVG_FILE_BLOCKS)
         );
 

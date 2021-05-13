@@ -36,7 +36,7 @@ final class OpenFileTable {
             freeEntry.reset(fdIndex, fd);
             return freeEntryIndex;
         } else {
-            throw new RuntimeException("Not enough space for new OFT entry");
+            throw new FakeIOException("Too many open files");
         }
     }
 
